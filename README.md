@@ -3,7 +3,7 @@ Welcome to the repository for pretrained Multiple Instance Learning (MIL) models
 
 This project aims to provide a collection of high-quality, pre-trained MIL models for various applications, making it easier for researchers to leverage state-of-the-art MIL architectures.
 
-We're currently preparing the models and comprehensive documentation for release. We're targeting July 15th, 2025, to coincide with the ICML conference.
+We're currently preparing the models and comprehensive documentation for release. We're targeting July 15th, 2025, to coincide with the ICML conference. If you'd like to keep an eye on our progress and support the project, a star on our repository would be greatly appreciated.
 
 Please check back then for:
 
