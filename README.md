@@ -6,7 +6,7 @@
 
 [Arxiv](https://arxiv.org/abs/2506.09022)
 
-This project aims to provide a collection of high-quality, pre-trained MIL models for various applications, making it easier for researchers to leverage state-of-the-art MIL architectures.
+This project aims to provide a collection of high-quality, pre-trained multiple instance learning (MIL) models for various applications, making it easier for researchers to leverage state-of-the-art MIL architectures.
 
 We're currently preparing the models and comprehensive documentation for release. We're targeting July 15th, 2025, to coincide with the ICML conference. 
 
