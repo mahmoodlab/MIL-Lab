@@ -1,5 +1,10 @@
 # MIL Lab
-Welcome to the repository for pretrained Multiple Instance Learning (MIL) models! This repository is based on our spotlight paper at ICML 2025, [Do MIL Models Transfer?](https://arxiv.org/abs/2506.09022)
+
+<b>Do Multiple Instance Learning Models Transfer?</b>, ICML (Spotlight) 2025.
+	<br><em>Daniel Shao, Richard J. Chen, Andrew H. Song, Joel Runevic, Ming Y. Lu, Tong Ding, Faisal Mahmood</em></br>
+
+
+[Arxiv](https://arxiv.org/abs/2506.09022)
 
 This project aims to provide a collection of high-quality, pre-trained MIL models for various applications, making it easier for researchers to leverage state-of-the-art MIL architectures.
 
@@ -14,3 +19,17 @@ Please check back then for:
 
 Thank you for your interest! We're excited to share these resources with the community soon.
 
+## Acknowledgements
+If you find our work useful in your research, please cite our paper:
+
+```bibtext
+@inproceedings{shao2025do,
+    title={Do Multiple Instance Learning Models Transfer?},
+    author={Shao, Daniel and Chen, Richard J and Song, Andrew H and Runevic, Joel and Lu, Ming Y. and Ding, Tong and and Mahmood, Faisal},
+    booktitle={International conference on machine learning},
+    year={2025},
+}
+```
+
+
+<img src=docs/joint_logo.png> 
