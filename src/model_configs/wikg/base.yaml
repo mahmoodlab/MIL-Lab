@@ -1,0 +1,6 @@
+embed_dim: 512
+topk: 4
+agg_type: "bi-interaction"
+pool: "attn"
+dropout: 0.25
+act: "leaky_relu"

@@ -1,0 +1,5 @@
+gate: True
+embed_dim: 512
+attn_dim: 384
+num_fc_layers: 1
+dropout: 0.25

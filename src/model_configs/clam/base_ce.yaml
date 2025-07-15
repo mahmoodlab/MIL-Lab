@@ -1,0 +1,10 @@
+embed_dim: 512
+n_fc_layers: 1
+dropout: 0.25
+gate: True
+attention_dim: 384
+k_sample: 8
+subtyping: False
+instance_loss_fn: 'ce'
+bag_weight: 0.7
+

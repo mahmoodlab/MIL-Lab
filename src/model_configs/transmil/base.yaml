@@ -1,0 +1,5 @@
+embed_dim: 512
+num_fc_layers: 1
+dropout: 0.25
+num_attention_layers: 2
+num_heads: 4

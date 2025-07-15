@@ -1,0 +1,6 @@
+embed_dim: 256
+num_attention_layers: 2
+num_heads: 8
+topk: 64
+ln: True
+mode: 'classification'

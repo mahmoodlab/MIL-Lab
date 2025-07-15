@@ -1,0 +1,10 @@
+embed_dim: 512
+attention_dim: 128
+num_residuals: 4
+num_fc_layers: 1
+dropout: 0.25
+attention_drop: 0.25
+distill: 'MaxMinS'
+num_group: 8
+total_instance: 4
+bag_weight: 0.7
