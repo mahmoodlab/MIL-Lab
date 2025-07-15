@@ -9,17 +9,10 @@ from src.models.layers import create_mlp
 from torch_geometric.nn import global_mean_pool, global_max_pool
 from torch_geometric.nn import GlobalAttention as GeoGlobalAttention
 from src.models.mil_template import MIL
-from src.builder_utils import build_model_with_cfg, _cfg
-#from src.pretrained_config import PretrainedConfig
 
 from transformers import PretrainedConfig, PreTrainedModel, AutoConfig, AutoModel
 
-_model_default_cfgs = {
-    'default': _cfg(),
-}
 
-# Helper function to get activation, assuming it exists in the new codebase
-# If not, you might need to define it.
 def get_act(act: str):
     if act == 'leaky_relu':
         return nn.LeakyReLU()
@@ -31,11 +24,12 @@ def get_act(act: str):
     else:
         raise NotImplementedError
 
+
 # --- 1. Configuration Class ---
 @dataclass
 class WIKGConfig(PretrainedConfig):
     model_type = 'wikg'
-    
+
     def __init__(self,
                  in_dim: int = 1024,
                  embed_dim: int = 512,
@@ -56,10 +50,25 @@ class WIKGConfig(PretrainedConfig):
         self.dropout = dropout
         self.act = act
 
+
 # --- 2. Core WIKG-MIL Model ---
 class WIKGMIL(MIL):
-    def __init__(self, in_dim: int = 1024, embed_dim: int = 512, num_classes: int = 2, agg_type: str = 'bi-interaction', pool: str = 'attn', dropout: float = 0.25, act: str = 'leaky_relu', topk: int = 6, **kwargs):
-        super().__init__(in_dim=in_dim, embed_dim=embed_dim, num_classes=num_classes)
+    def __init__(self, in_dim: int = 1024, embed_dim: int = 512, num_classes: int = 2, agg_type: str = 'bi-interaction',
+                 pool: str = 'attn', dropout: float = 0.25, act: str = 'leaky_relu', topk: int = 6, **kwargs):
+        """
+        Initializes the WIKGMIL model.
+
+        Args:
+            in_dim (int): Input dimension of node features.
+            embed_dim (int): Embedding dimension for node features.
+            num_classes (int): Number of output classes.
+            agg_type (str): Type of aggregation to use ('gcn', 'sage', or 'bi-interaction').
+            pool (str): Type of pooling to use ('mean', 'max', or 'attn').
+            dropout (float): Dropout rate.
+            act (str): Activation function to use ('leaky_relu', 'relu', or 'tanh').
+            topk (int): Number of top-k nodes to consider for attention.
+            **kwargs: Additional keyword arguments.
+        """
         self.agg_type = agg_type
         self.topk = topk
         self.pool = pool
@@ -127,16 +136,33 @@ class WIKGMIL(MIL):
             self.readout = GeoGlobalAttention(attn_net)
         else:
             raise NotImplementedError(f"Pooling type '{self.pool}' not supported.")
-        
+
         self.norm = nn.LayerNorm(dim_hidden)
         self.classifier = nn.Linear(dim_hidden, self.num_classes)
 
         self.initialize_weights()
 
-    def forward_attention(self, h, attn_only=False, **kwargs):
+    def forward_attention(self, h: torch.Tensor, attn_only: bool = False, **kwargs) -> tuple[
+        torch.Tensor, torch.Tensor]:
+        """
+        Computes attention-based node embeddings and attention weights.
+
+        Args:
+            h (torch.Tensor): Input node features of shape (batch, nodes, features).
+            attn_only (bool, optional): If True, only returns the attention matrix. Defaults to False.
+            **kwargs: Additional keyword arguments (not used).
+
+        Returns:
+            If attn_only is True:
+                torch.Tensor: The full attention matrix after softmax, shape (batch, nodes, nodes).
+            Else:
+                Tuple[torch.Tensor, torch.Tensor]:
+                    - Node embeddings after attention and aggregation, shape (batch, nodes, features).
+                    - The full attention matrix after softmax, shape (batch, nodes, nodes).
+        """
         h = self.patch_embed(h)
         h = (h + h.mean(dim=1, keepdim=True)) * 0.5
-        
+
         e_h = self.W_head(h)
         e_t = self.W_tail(h)
 
@@ -156,7 +182,7 @@ class WIKGMIL(MIL):
         eh_r = torch.mul(topk_prob.unsqueeze(-1), Nb_h)
 
         gate = torch.tanh(e_h.unsqueeze(2).expand_as(Nb_h) + eh_r)
-        ka_weight = torch.einsum('bnik,bnik->bni', gate, Nb_h) # Element-wise product and sum
+        ka_weight = torch.einsum('bnik,bnik->bni', gate, Nb_h)  # Element-wise product and sum
         ka_prob = F.softmax(ka_weight, dim=-1).unsqueeze(-1)
         e_Nh = torch.sum(ka_prob * Nb_h, dim=2)
 
@@ -168,19 +194,31 @@ class WIKGMIL(MIL):
             sum_embedding = self.activation(self.linear1(e_h + e_Nh))
             bi_embedding = self.activation(self.linear2(e_h * e_Nh))
             embedding = sum_embedding + bi_embedding
-        
+
         if attn_only:
             return full_attn
-        
+
         return embedding, full_attn
 
-    def forward_features(self, h: torch.Tensor, attn_mask=None) -> torch.Tensor:
+    def forward_features(self, h: torch.Tensor, attn_mask: torch.Tensor = None) -> torch.Tensor:
+        """
+        Extracts slide-level features from input tensor using attention-based aggregation.
+
+        Args:
+            h (torch.Tensor): Input features of shape (batch, nodes, features).
+            attn_mask (torch.Tensor, optional): Optional attention mask (not used in this implementation).
+
+        Returns:
+            Tuple[torch.Tensor, Dict]:
+                - h_norm: Normalized slide-level feature tensor.
+                - dict: Dictionary containing raw attention weights under key 'attention'.
+        """
         h, A_raw = self.forward_attention(h, attn_only=False)
         h = self.message_dropout(h)
-        
+
         # Squeeze batch dimension for torch_geometric pooling functions
         h_pool = self.readout(h.squeeze(0), batch=None)
-        
+
         h_norm = self.norm(h_pool)
         return h_norm, {'attention': A_raw}
 
@@ -191,13 +229,29 @@ class WIKGMIL(MIL):
     def forward(self, h: torch.Tensor,
                 loss_fn: nn.Module = None,
                 label: torch.LongTensor = None,
-                attn_mask=None,
-                return_attention=False,
-                return_slide_feats=False,
+                attn_mask: torch.Tensor = None,
+                return_attention: bool = False,
+                return_slide_feats: bool = False,
                 ) -> torch.Tensor:
+        """
+        Forward pass for the WIKGMIL model.
+
+        Args:
+            h (torch.Tensor): Input features of shape (batch, nodes, features).
+            loss_fn (nn.Module, optional): Loss function to compute classification loss.
+            label (torch.LongTensor, optional): Ground truth labels.
+            attn_mask (optional): Optional attention mask.
+            return_attention (bool, optional): If True, return attention weights in log_dict.
+            return_slide_feats (bool, optional): If True, return slide-level features in log_dict.
+
+        Returns:
+            Tuple[Dict, Dict]:
+                - results_dict: Dictionary containing logits and loss.
+                - log_dict: Dictionary containing attention weights, loss, and optionally slide features.
+        """
         h, log_dict = self.forward_features(h, attn_mask=attn_mask)
         logits = self.forward_head(h)
-        
+
         cls_loss = self.compute_loss(loss_fn, logits, label)
         results_dict = {'logits': logits, 'loss': cls_loss}
         log_dict['loss'] = cls_loss.item() if cls_loss is not None else -1
@@ -206,7 +260,7 @@ class WIKGMIL(MIL):
             del log_dict['attention']
         if return_slide_feats:
             log_dict['slide_feats'] = h
-        
+
         return results_dict, log_dict
 
 
@@ -219,7 +273,7 @@ class WIKGMILModel(PreTrainedModel):
         super().__init__(config)
         for k, v in kwargs.items():
             setattr(config, k, v)
-        
+
         self.model = WIKGMIL(
             in_dim=config.in_dim,
             embed_dim=config.embed_dim,
@@ -230,7 +284,7 @@ class WIKGMILModel(PreTrainedModel):
             act=config.act,
             topk=config.topk,
         )
-        
+
         # Delegate forward methods to the internal model
         self.forward = self.model.forward
         self.forward_attention = self.model.forward_attention

@@ -1,6 +1,7 @@
 import os
 from typing import Optional
 import pathlib
+import pdb
 
 import torch
 import torch.nn as nn
@@ -9,21 +10,13 @@ from transformers import PretrainedConfig, PreTrainedModel, AutoConfig, AutoMode
 
 from src.models.mil_template import MIL
 from src.models.layers import create_mlp
-from src.builder_utils import _cfg, build_model_with_cfg
 
-# Define paths for model zoo if not already defined
-REPO_PATH = str(pathlib.Path(__file__).parent.parent.parent.resolve())
-MODEL_ZOO_PATH = os.path.join(REPO_PATH, 'assets', 'model_zoo')
-
-# Configuration dictionary for DSMIL model variants
-_model_default_cfgs = {
-    'default': _cfg(),
-}
 
 # --- Core Model Components ---
 
 class IClassifier(nn.Module):
     """Instance-level classifier."""
+
     def __init__(self, in_dim: int, num_classes: int):
         super().__init__()
         self.inst_classifier = nn.Linear(in_dim, num_classes)
@@ -33,8 +26,10 @@ class IClassifier(nn.Module):
         c = self.inst_classifier(h)  # B x M x C
         return c
 
+
 class BClassifier(nn.Module):
     """Bag-level classifier with attention."""
+
     def __init__(self, in_dim: int, attn_dim: int = 384, dropout: float = 0.0):
         super().__init__()
         self.q = nn.Linear(in_dim, attn_dim)
@@ -45,7 +40,6 @@ class BClassifier(nn.Module):
         self.norm = nn.LayerNorm(in_dim)
         self.fcc = nn.Conv1d(3, 3, kernel_size=in_dim)
 
-
     def forward(self, h: torch.Tensor, c: torch.Tensor, attn_mask=None) -> tuple[torch.Tensor, torch.Tensor]:
         device = h.device
         V = self.v(h)  # B x M x D
@@ -55,26 +49,26 @@ class BClassifier(nn.Module):
         _, m_indices = torch.sort(c, dim=1, descending=True)
 
         # Select features of top instances for each class
-        # This part is tricky to batch for variable number of classes; the original list comprehension is safer
         m_feats = torch.stack(
             [torch.index_select(h_i, dim=0, index=m_indices_i[0, :]) for h_i, m_indices_i in zip(h, m_indices)], 0
         )
 
         q_max = self.q(m_feats)  # B x C x D_attn
+        # Attention mechanism: I think this could be the error?
         A = torch.bmm(Q, q_max.transpose(1, 2))  # B x M x C
         if attn_mask is not None:
             A = A + (1 - attn_mask).unsqueeze(dim=2) * torch.finfo(A.dtype).min
-            
-        A = F.softmax(A / torch.sqrt(torch.tensor(Q.shape[-1], dtype=torch.float32, device=device)), dim=1) # Softmax over M
-        
+
+        A = F.softmax(A / torch.sqrt(torch.tensor(Q.shape[-1], dtype=torch.float32, device=device)),
+                      dim=1)  # Softmax over M
+
         # Aggregate features
 
-        B = torch.bmm(A.transpose(1, 2), V)  # B x C x D  --> we're actually getting B x N x D?
-
+        B = torch.bmm(A.transpose(1, 2), V)  # B x C x D
 
         B = self.norm(B)
-
         return B, A
+
 
 # --- Main DSMIL Module (inherits from MIL base) ---
 
@@ -102,7 +96,8 @@ class DSMIL(MIL):
         self.classifier = nn.Conv1d(num_classes, num_classes, kernel_size=embed_dim)
         self.initialize_weights()
 
-    def forward_features(self, h: torch.Tensor, attn_mask=None, return_attention: bool=False) -> tuple[torch.Tensor, dict]:
+    def forward_features(self, h: torch.Tensor, attn_mask=None, return_attention: bool = False) -> tuple[
+        torch.Tensor, dict]:
         h = self.patch_embed(h)
         instance_classes = self.i_classifier(h)
         slide_feats, attention = self.b_classifier(h, instance_classes, attn_mask=attn_mask)
@@ -119,7 +114,7 @@ class DSMIL(MIL):
         self.classifier = nn.Conv1d(num_classes, num_classes, kernel_size=self.embed_dim)
 
     def forward_head(self, slide_feats: torch.Tensor) -> torch.Tensor:
-        logits =  self.classifier(slide_feats) # B x C x 1
+        logits = self.classifier(slide_feats)  # B x C x 1
         return logits.squeeze(-1)
 
     def forward(self, h: torch.Tensor, label: torch.LongTensor = None, loss_fn: nn.Module = None,
@@ -130,15 +125,16 @@ class DSMIL(MIL):
         bag_logits = self.forward_head(slide_feats)
         logits = 0.5 * (bag_logits + max_instance_logits)
         cls_loss = self.compute_loss(loss_fn, logits, label)
-        
+
         results_dict = {'logits': logits, 'loss': cls_loss}
         log_dict = {'loss': cls_loss.item() if cls_loss is not None else -1}
         if not return_attention and 'attention' in log_dict:
             del log_dict['attention']
         if return_slide_feats:
             log_dict['slide_feats'] = slide_feats
-        
+
         return results_dict, log_dict
+
 
 # --- Hugging Face Compatible Configuration and Model ---
 
@@ -163,14 +159,16 @@ class DSMILConfig(PretrainedConfig):
         self.dropout_v = dropout_v
         self.num_classes = num_classes
 
+
 class DSMILModel(PreTrainedModel):
     config_class = DSMILConfig
+
     def __init__(self, config: DSMILConfig, **kwargs):
         # Override config with any kwargs provided
         self.config = config
         for key, value in kwargs.items():
             setattr(config, key, value)
-            
+
         super().__init__(config)
         self.model = DSMIL(
             in_dim=config.in_dim,

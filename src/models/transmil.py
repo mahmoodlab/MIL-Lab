@@ -158,7 +158,6 @@ class TransMIL(MIL):
                     cls_token = h[:, 0]  # b x d
                     feats = h[:, 1:] # b x n x d
                     # compute the dot prod similarity between each feat and cls token
-                    # dot prod
                     intermed_dict['attention'] = torch.matmul(feats, cls_token.unsqueeze(-1)).squeeze(-1)
                 h = self.pos_layer(h, h_square, w_square)
         return h, intermed_dict
@@ -248,11 +247,9 @@ class TransMIL(MIL):
 
 #@dataclass
 class TransMILConfig(PretrainedConfig):
-    #_target_: str = "src.models.abmil.ABMIL"
     model_type = 'transmil'
 
     def __init__(self,
-        #_target_: str = "src.models.transformer.TransformerModel",
         embed_dim: int = 512,
         num_fc_layers: int = 1,
         dropout: float = 0.25,
@@ -269,7 +266,6 @@ class TransMILConfig(PretrainedConfig):
         self.dropout = dropout
         self.num_attention_layers = num_attention_layers
         self.num_heads = num_heads
-        #self._target_ = _target_
         super().__init__(**kwargs)
 
 
@@ -293,10 +289,8 @@ class TransMILModel(PreTrainedModel):
             dropout=config.dropout,
             num_heads=config.num_heads,
             num_attention_layers=config.num_attention_layers
-            #encoder_mlp_dim=config.encoder_mlp_dim,
         )
         self.forward = self.model.forward
-        #self.forward_attention = self.model.forward_attention
         self.forward_features = self.model.forward_features
         self.forward_head = self.model.forward_head
         self.initialize_classifier = self.model.initialize_classifier

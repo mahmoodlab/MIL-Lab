@@ -1,3 +1,5 @@
+import pdb
+
 import numpy as np
 import torch
 from transformers import PreTrainedModel, PretrainedConfig, AutoModel, AutoConfig
@@ -7,9 +9,11 @@ import torch.nn as nn
 import torch
 import random
 #from utils import get_cam_1d
+#import torch.nn.functional as F
 from src.models.layers import create_mlp, GlobalGatedAttention
 from src.models.abmil import ABMIL
 from src.models.mil_template import MIL
+#from utils import eval_metric
 from dataclasses import dataclass
 
 from src.builder_utils import _cfg, build_model_with_cfg
@@ -73,7 +77,7 @@ class DFTD(MIL):
         self.initialize_weights()
 
     def forward(self, h: torch.Tensor, label: torch.LongTensor = None,
-                loss_fn: nn.Module = None, return_attention: bool = False,
+                loss_fn: nn.Module = None, attn_mask: torch.Tensor = None, return_attention: bool = False,
                 return_slide_feats: bool = False) -> tuple[dict, dict]:
         """
         Forward pass for the DFTD model.
@@ -123,7 +127,6 @@ class DFTD(MIL):
         """
         if inst_loss is not None:
             loss = cls_loss * self.bag_weight + (1 - self.bag_weight) * inst_loss
-            #loss = cls_loss * 0.7 + (1 - 0.7) * inst_loss
         else:
             loss = cls_loss
         return loss
@@ -185,7 +188,7 @@ class DFTD(MIL):
         self,
         h: torch.Tensor,
         label: torch.Tensor,
-        return_attention: bool = False
+        return_attention: bool = False,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """
         Compute pseudobag slide-level features and instance predictions.

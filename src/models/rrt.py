@@ -1,68 +1,67 @@
-import os
 from dataclasses import dataclass
-import pathlib
 
-import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from einops import repeat
+from torch import nn
 
 from src.models.mil_template import MIL
-from src.models.layers import GlobalAttention, GlobalGatedAttention, create_mlp
-from src.builder_utils import _cfg, build_model_with_cfg
-#from src.pretrained_config import PretrainedConfig
 from transformers import PretrainedConfig
 from transformers import PreTrainedModel, AutoConfig, AutoModel
 
-import torch
-from torch import nn
-import numpy as np
 MODEL_TYPE = 'rrtmil'
 
-_model_default_cfgs = {
-    'default': _cfg(),
-}
 
 class PPEG(nn.Module):
-    def __init__(self, dim=512,k=7,conv_1d=False,bias=True):
+    def __init__(self, dim=512, k=7, conv_1d=False, bias=True):
         super(PPEG, self).__init__()
-        self.proj = nn.Conv2d(dim, dim, k, 1, k//2, groups=dim,bias=bias) if not conv_1d else nn.Conv2d(dim, dim, (k,1), 1, (k//2,0), groups=dim,bias=bias)
-        self.proj1 = nn.Conv2d(dim, dim, 5, 1, 5//2, groups=dim,bias=bias) if not conv_1d else nn.Conv2d(dim, dim, (5,1), 1, (5//2,0), groups=dim,bias=bias)
-        self.proj2 = nn.Conv2d(dim, dim, 3, 1, 3//2, groups=dim,bias=bias) if not conv_1d else nn.Conv2d(dim, dim, (3,1), 1, (3//2,0), groups=dim,bias=bias)
+        self.proj = nn.Conv2d(dim, dim, k, 1, k // 2, groups=dim, bias=bias) if not conv_1d else nn.Conv2d(dim, dim,
+                                                                                                           (k, 1), 1,
+                                                                                                           (k // 2, 0),
+                                                                                                           groups=dim,
+                                                                                                           bias=bias)
+        self.proj1 = nn.Conv2d(dim, dim, 5, 1, 5 // 2, groups=dim, bias=bias) if not conv_1d else nn.Conv2d(dim, dim,
+                                                                                                            (5, 1), 1,
+                                                                                                            (5 // 2, 0),
+                                                                                                            groups=dim,
+                                                                                                            bias=bias)
+        self.proj2 = nn.Conv2d(dim, dim, 3, 1, 3 // 2, groups=dim, bias=bias) if not conv_1d else nn.Conv2d(dim, dim,
+                                                                                                            (3, 1), 1,
+                                                                                                            (3 // 2, 0),
+                                                                                                            groups=dim,
+                                                                                                            bias=bias)
 
     def forward(self, x):
         B, N, C = x.shape
 
         # padding
         H, W = int(np.ceil(np.sqrt(N))), int(np.ceil(np.sqrt(N)))
-        
+
         add_length = H * W - N
         # if add_length >0:
-        x = torch.cat([x, x[:,:add_length,:]],dim = 1) 
+        x = torch.cat([x, x[:, :add_length, :]], dim=1)
 
         if H < 7:
-            H,W = 7,7
-            zero_pad = H * W - (N+add_length)
-            x = torch.cat([x, torch.zeros((B,zero_pad,C),device=x.device)],dim = 1)
+            H, W = 7, 7
+            zero_pad = H * W - (N + add_length)
+            x = torch.cat([x, torch.zeros((B, zero_pad, C), device=x.device)], dim=1)
             add_length += zero_pad
 
-        # H, W = int(N**0.5),int(N**0.5)
-        # cls_token, feat_token = x[:, 0], x[:, 1:]
-        # feat_token = x
         cnn_feat = x.transpose(1, 2).view(B, C, H, W)
 
-        x = self.proj(cnn_feat)+cnn_feat+self.proj1(cnn_feat)+self.proj2(cnn_feat)
+        x = self.proj(cnn_feat) + cnn_feat + self.proj1(cnn_feat) + self.proj2(cnn_feat)
         x = x.flatten(2).transpose(1, 2)
-        # print(add_length)
-        if add_length >0:
-            x = x[:,:-add_length]
-        # x = torch.cat((cls_token.unsqueeze(1), x), dim=1)
+        if add_length > 0:
+            x = x[:, :-add_length]
         return x
 
+
 class PEG(nn.Module):
-    def __init__(self, dim=512,k=7,bias=True,conv_1d=False):
+    def __init__(self, dim=512, k=7, bias=True, conv_1d=False):
         super(PEG, self).__init__()
-        self.proj = nn.Conv2d(dim, dim, k, 1, k//2, groups=dim,bias=bias) if not conv_1d else nn.Conv2d(dim, dim, (k,1), 1, (k//2,0), groups=dim,bias=bias)
+        self.proj = nn.Conv2d(dim, dim, k, 1, k // 2, groups=dim, bias=bias) if not conv_1d else nn.Conv2d(dim, dim,
+                                                                                                           (k, 1), 1,
+                                                                                                           (k // 2, 0),
+                                                                                                           groups=dim,
+                                                                                                           bias=bias)
 
     def forward(self, x):
         B, N, C = x.shape
@@ -70,26 +69,26 @@ class PEG(nn.Module):
         # padding
         H, W = int(np.ceil(np.sqrt(N))), int(np.ceil(np.sqrt(N)))
         add_length = H * W - N
-        x = torch.cat([x, x[:,:add_length,:]],dim = 1)
+        x = torch.cat([x, x[:, :add_length, :]], dim=1)
 
         feat_token = x
         cnn_feat = feat_token.transpose(1, 2).view(B, C, H, W)
-        x = self.proj(cnn_feat)+cnn_feat
+        x = self.proj(cnn_feat) + cnn_feat
 
         x = x.flatten(2).transpose(1, 2)
-        if add_length >0:
-            x = x[:,:-add_length]
+        if add_length > 0:
+            x = x[:, :-add_length]
 
-        # x = torch.cat((cls_token.unsqueeze(1), x), dim=1)
         return x
 
 
 class SINCOS(nn.Module):
-    def __init__(self,embed_dim=512):
+    def __init__(self, embed_dim=512):
         super(SINCOS, self).__init__()
         self.embed_dim = embed_dim
         self.pos_embed = self.get_2d_sincos_pos_embed(embed_dim, 8)
-    def get_1d_sincos_pos_embed_from_grid(self,embed_dim, pos):
+
+    def get_1d_sincos_pos_embed_from_grid(self, embed_dim, pos):
         """
         embed_dim: output dimension for each position
         pos: a list of positions to be encoded: size (M,)
@@ -98,28 +97,28 @@ class SINCOS(nn.Module):
         assert embed_dim % 2 == 0
         omega = np.arange(embed_dim // 2, dtype=np.float)
         omega /= embed_dim / 2.
-        omega = 1. / 10000**omega  # (D/2,)
+        omega = 1. / 10000 ** omega  # (D/2,)
 
         pos = pos.reshape(-1)  # (M,)
         out = np.einsum('m,d->md', pos, omega)  # (M, D/2), outer product
 
-        emb_sin = np.sin(out) # (M, D/2)
-        emb_cos = np.cos(out) # (M, D/2)
+        emb_sin = np.sin(out)  # (M, D/2)
+        emb_cos = np.cos(out)  # (M, D/2)
 
         emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
         return emb
 
-    def get_2d_sincos_pos_embed_from_grid(self,embed_dim, grid):
+    def get_2d_sincos_pos_embed_from_grid(self, embed_dim, grid):
         assert embed_dim % 2 == 0
 
         # use half of dimensions to encode grid_h
         emb_h = self.get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[0])  # (H*W, D/2)
         emb_w = self.get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[1])  # (H*W, D/2)
 
-        emb = np.concatenate([emb_h, emb_w], axis=1) # (H*W, D)
+        emb = np.concatenate([emb_h, emb_w], axis=1)  # (H*W, D)
         return emb
 
-    def get_2d_sincos_pos_embed(self,embed_dim, grid_size, cls_token=False):
+    def get_2d_sincos_pos_embed(self, embed_dim, grid_size, cls_token=False):
         """
         grid_size: int of the grid height and width
         return:
@@ -137,45 +136,26 @@ class SINCOS(nn.Module):
         return pos_embed
 
     def forward(self, x):
-        #B, N, C = x.shape
-        B,H,W,C = x.shape
+        # B, N, C = x.shape
+        B, H, W, C = x.shape
         # # padding
-        # H, W = int(np.ceil(np.sqrt(N))), int(np.ceil(np.sqrt(N)))
-        # add_length = H * W - N
-        # x = torch.cat([x, x[:,:add_length,:]],dim = 1)
-
-        # pos_embed = torch.zeros(1, H * W + 1, self.embed_dim)
-        # pos_embed = self.get_2d_sincos_pos_embed(pos_embed.shape[-1], int(H), cls_token=True)
-        #pos_embed = torch.from_numpy(self.pos_embed).float().unsqueeze(0).to(x.device)
-
         pos_embed = torch.from_numpy(self.pos_embed).float().to(x.device)
 
-        # print(pos_embed.size())
-        # print(x.size())
-        x = x + pos_embed.unsqueeze(1).unsqueeze(1).repeat(1,H,W,1)
-        
-
-        #x = x + pos_embed[:, 1:, :]
-
-        # if add_length >0:
-        #     x = x[:,:-add_length]
+        x = x + pos_embed.unsqueeze(1).unsqueeze(1).repeat(1, H, W, 1)
 
         return x
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 class Attention(nn.Module):
-    def __init__(self,input_dim=512,act='relu',bias=False,dropout=False):
+    def __init__(self, input_dim=512, act='relu', bias=False, dropout=False):
         super(Attention, self).__init__()
         self.L = input_dim
         self.D = 128
         self.K = 1
 
-        self.attention = [nn.Linear(self.L, self.D,bias=bias)]
+        self.attention = [nn.Linear(self.L, self.D, bias=bias)]
 
-        if act == 'gelu': 
+        if act == 'gelu':
             self.attention += [nn.GELU()]
         elif act == 'relu':
             self.attention += [nn.ReLU()]
@@ -185,37 +165,37 @@ class Attention(nn.Module):
         if dropout:
             self.attention += [nn.Dropout(0.25)]
 
-        self.attention += [nn.Linear(self.D, self.K,bias=bias)]
+        self.attention += [nn.Linear(self.D, self.K, bias=bias)]
 
         self.attention = nn.Sequential(*self.attention)
 
-    def forward(self,x,no_norm=False):
+    def forward(self, x, no_norm=False):
         A = self.attention(x)
         A = torch.transpose(A, -1, -2)  # KxN
         A_ori = A.clone()
         A = F.softmax(A, dim=-1)  # softmax over N
-        x = torch.matmul(A,x)
-        
+        x = torch.matmul(A, x)
+
         if no_norm:
-            return x,A_ori
+            return x, A_ori
         else:
-            return x,A
+            return x, A
+
 
 class AttentionGated(nn.Module):
-    def __init__(self,input_dim=512,act='relu',bias=False,dropout=False):
+    def __init__(self, input_dim=512, act='relu', bias=False, dropout=False):
         super(AttentionGated, self).__init__()
         self.L = input_dim
         self.D = 128
         self.K = 1
 
         self.attention_a = [
-            nn.Linear(self.L, self.D,bias=bias),
+            nn.Linear(self.L, self.D, bias=bias),
         ]
-        
-        self.attention_a += [get_act(act)]
-    
 
-        self.attention_b = [nn.Linear(self.L, self.D,bias=bias),
+        self.attention_a += [get_act(act)]
+
+        self.attention_b = [nn.Linear(self.L, self.D, bias=bias),
                             nn.Sigmoid()]
 
         if dropout:
@@ -225,9 +205,9 @@ class AttentionGated(nn.Module):
         self.attention_a = nn.Sequential(*self.attention_a)
         self.attention_b = nn.Sequential(*self.attention_b)
 
-        self.attention_c = nn.Linear(self.D, self.K,bias=bias)
+        self.attention_c = nn.Linear(self.D, self.K, bias=bias)
 
-    def forward(self, x,no_norm=False):
+    def forward(self, x, no_norm=False):
         a = self.attention_a(x)
         b = self.attention_b(x)
         A = a.mul(b)
@@ -236,25 +216,25 @@ class AttentionGated(nn.Module):
         A = torch.transpose(A, -1, -2)  # KxN
         A_ori = A.clone()
         A = F.softmax(A, dim=-1)  # softmax over N
-        x = torch.matmul(A,x)
+        x = torch.matmul(A, x)
 
         if no_norm:
-            return x,A_ori
+            return x, A_ori
         else:
-            return x,A
+            return x, A
+
 
 class DAttention(nn.Module):
-    def __init__(self,input_dim=512,act='relu',gated=False,bias=False,dropout=False):
+    def __init__(self, input_dim=512, act='relu', gated=False, bias=False, dropout=False):
         super(DAttention, self).__init__()
         self.gated = gated
         if gated:
-            self.attention = AttentionGated(input_dim,act,bias,dropout)
+            self.attention = AttentionGated(input_dim, act, bias, dropout)
         else:
-            self.attention = Attention(input_dim,act,bias,dropout)
+            self.attention = Attention(input_dim, act, bias, dropout)
 
-
- # Modified by MAE@Meta
-    def masking(self, x, ids_shuffle=None,len_keep=None):
+    # Modified by MAE@Meta
+    def masking(self, x, ids_shuffle=None, len_keep=None):
         """
         Perform per-sample random masking by per-sample shuffling.
         Per-sample shuffling is done by argsort random noise.
@@ -263,7 +243,7 @@ class DAttention(nn.Module):
         N, L, D = x.shape  # batch, length, dim
         assert ids_shuffle is not None
 
-        _,ids_restore = ids_shuffle.sort()
+        _, ids_restore = ids_shuffle.sort()
 
         # keep the first subset
         ids_keep = ids_shuffle[:, :len_keep]
@@ -277,20 +257,21 @@ class DAttention(nn.Module):
 
         return x_masked, mask, ids_restore
 
-    def forward(self, x, mask_ids=None, len_keep=None, return_attn=False,no_norm=False,mask_enable=False):
+    def forward(self, x, mask_ids=None, len_keep=None, return_attn=False, no_norm=False, mask_enable=False):
 
         if mask_enable and mask_ids is not None:
-            x, _,_ = self.masking(x,mask_ids,len_keep)
+            x, _, _ = self.masking(x, mask_ids, len_keep)
 
-        x,attn = self.attention(x,no_norm)
+        x, attn = self.attention(x, no_norm)
 
         if return_attn:
-            return x.squeeze(1),attn.squeeze(1)
-        else:   
+            return x.squeeze(1), attn.squeeze(1)
+        else:
             return x.squeeze(1)
-        
+
+
 class BClassifier(nn.Module):
-    def __init__(self, input_size, output_class, dropout_v=0.0, nonlinear=True, passing_v=True): # K, L, N
+    def __init__(self, input_size, output_class, dropout_v=0.0, nonlinear=True, passing_v=True):  # K, L, N
         super(BClassifier, self).__init__()
         if nonlinear:
             self.q = nn.Sequential(nn.Linear(input_size, 128), nn.ReLU(), nn.Linear(128, 128), nn.Tanh())
@@ -304,80 +285,78 @@ class BClassifier(nn.Module):
             )
         else:
             self.v = nn.Identity()
-        
+
         ### 1D convolutional layer that can handle multiple class (including binary)
-        self.fcc = nn.Conv1d(output_class, output_class, kernel_size=input_size)  
-        
-    def forward(self, feats, c): # N x K, N x C
+        self.fcc = nn.Conv1d(output_class, output_class, kernel_size=input_size)
+
+    def forward(self, feats, c):  # N x K, N x C
         device = feats.device
-        V = self.v(feats) # N x V, unsorted
-        Q = self.q(feats).view(feats.shape[0], -1) # N x Q, unsorted
-        
+        V = self.v(feats)  # N x V, unsorted
+        Q = self.q(feats).view(feats.shape[0], -1)  # N x Q, unsorted
+
         # handle multiple classes without for loop
-        _, m_indices = torch.sort(c, 0, descending=True) # sort class scores along the instance dimension, m_indices in shape N x C
-        m_feats = torch.index_select(feats, dim=0, index=m_indices[0, :]) # select critical instances, m_feats in shape C x K 
-        q_max = self.q(m_feats) # compute queries of critical instances, q_max in shape C x Q
-        A = torch.mm(Q, q_max.transpose(0, 1)) # compute inner product of Q to each entry of q_max, A in shape N x C, each column contains unnormalized attention scores
-        A = F.softmax( A / torch.sqrt(torch.tensor(Q.shape[1], dtype=torch.float32, device=device)), 0) # normalize attention scores, A in shape N x C, 
-        B = torch.mm(A.transpose(0, 1), V) # compute bag representation, B in shape C x V
-                
-        B = B.view(1, B.shape[0], B.shape[1]) # 1 x C x V
-        C = self.fcc(B) # 1 x C x 1
+        _, m_indices = torch.sort(c, 0,
+                                  descending=True)  # sort class scores along the instance dimension, m_indices in shape N x C
+        m_feats = torch.index_select(feats, dim=0,
+                                     index=m_indices[0, :])  # select critical instances, m_feats in shape C x K
+        q_max = self.q(m_feats)  # compute queries of critical instances, q_max in shape C x Q
+        A = torch.mm(Q, q_max.transpose(0,
+                                        1))  # compute inner product of Q to each entry of q_max, A in shape N x C, each column contains unnormalized attention scores
+        A = F.softmax(A / torch.sqrt(torch.tensor(Q.shape[1], dtype=torch.float32, device=device)),
+                      0)  # normalize attention scores, A in shape N x C,
+        B = torch.mm(A.transpose(0, 1), V)  # compute bag representation, B in shape C x V
+
+        B = B.view(1, B.shape[0], B.shape[1])  # 1 x C x V
+        C = self.fcc(B)  # 1 x C x 1
         C = C.view(1, -1)
-        return C, A, B 
+        return C, A, B
+
+
 class DSMIL(nn.Module):
-    def __init__(self,num_classes=2,mask_ratio=0.,mlp_dim=512,cls_attn=True,attn_index='max'):
+    def __init__(self, num_classes=2, mask_ratio=0., mlp_dim=512, cls_attn=True, attn_index='max'):
         super(DSMIL, self).__init__()
 
         self.i_classifier = nn.Sequential(
             nn.Linear(mlp_dim, num_classes))
-        self.b_classifier = BClassifier(mlp_dim,num_classes)
+        self.b_classifier = BClassifier(mlp_dim, num_classes)
 
         self.cls_attn = cls_attn
         self.attn_index = attn_index
 
         self.mask_ratio = mask_ratio
 
-    def attention(self,x,no_norm=False,label=None,criterion=None,return_attn=False):
+    def attention(self, x, no_norm=False, label=None, criterion=None, return_attn=False):
         ps = x.size(1)
         feats = x.squeeze(0)
         classes = self.i_classifier(feats)
         prediction_bag, A, B = self.b_classifier(feats, classes)
-        
-        classes_bag,_ = torch.max(classes, 0) 
+
+        classes_bag, _ = torch.max(classes, 0)
 
         if return_attn:
             # 通过bag和inst综合判断
             if self.attn_index == 'max':
-                attn,_ = torch.max(classes,-1) if self.cls_attn else torch.max(A,-1)
-                # pred = 0.5*torch.softmax(prediction_bag,dim=-1)+0.5*torch.softmax(classes_bag,dim=-1)
-                # _,_attn_idx = torch.max(pred.squeeze(),0)
-            #     _,_attn_idx = torch.max(classes_bag,0)
-            #     attn = classes[:,int(_attn_idx)] if self.cls_attn else A[:,int(_attn_idx)]
+                attn, _ = torch.max(classes, -1) if self.cls_attn else torch.max(A, -1)
             elif self.attn_index == 'label':
                 if label is None:
-                    pred = 0.5*torch.softmax(prediction_bag,dim=-1)+0.5*torch.softmax(classes_bag,dim=-1)
-                    _,_attn_idx = torch.max(pred.squeeze(),0)
-                    attn = classes[:,int(_attn_idx)] if self.cls_attn else A[:,int(_attn_idx)]
+                    pred = 0.5 * torch.softmax(prediction_bag, dim=-1) + 0.5 * torch.softmax(classes_bag, dim=-1)
+                    _, _attn_idx = torch.max(pred.squeeze(), 0)
+                    attn = classes[:, int(_attn_idx)] if self.cls_attn else A[:, int(_attn_idx)]
                 else:
-                    attn = classes[:,label[0]] if self.cls_attn else A[:,label[0]]
+                    attn = classes[:, label[0]] if self.cls_attn else A[:, label[0]]
             else:
-                attn = classes[:,int(self.attn_index)] if self.cls_attn else A[:,int(self.attn_index)]
+                attn = classes[:, int(self.attn_index)] if self.cls_attn else A[:, int(self.attn_index)]
             attn = attn.unsqueeze(0)
         else:
             attn = None
 
         if self.training and criterion is not None:
-            # if isinstance(loss,nn.CrossEntropyLoss):
-            max_loss = criterion(classes_bag.view(1,-1),label)
-            # elif isinstance(loss,nn.BCEWithLogitsLoss):
-            #     max_loss = loss(classes.view(1, -1), label.view(1, -1).float())
-            # 
-            return prediction_bag,attn,B,max_loss
+            max_loss = criterion(classes_bag.view(1, -1), label)
+            return prediction_bag, attn, B, max_loss
         else:
-            return prediction_bag,attn,B,classes_bag.unsqueeze(0)
-    
-    def random_masking(self, x, mask_ratio,ids_shuffle=None,len_keep=None):
+            return prediction_bag, attn, B, classes_bag.unsqueeze(0)
+
+    def random_masking(self, x, mask_ratio, ids_shuffle=None, len_keep=None):
         """
         Perform per-sample random masking by per-sample shuffling.
         Per-sample shuffling is done by argsort random noise.
@@ -393,7 +372,7 @@ class DSMIL(nn.Module):
             ids_shuffle = torch.argsort(noise, dim=1)  # ascend: small is keep, large is remove
             ids_restore = torch.argsort(ids_shuffle, dim=1)
         else:
-            _,ids_restore = ids_shuffle.sort()
+            _, ids_restore = ids_shuffle.sort()
 
         # keep the first subset
         ids_keep = ids_shuffle[:, :len_keep]
@@ -406,24 +385,24 @@ class DSMIL(nn.Module):
         mask = torch.gather(mask, dim=1, index=ids_restore)
 
         return x_masked, mask, ids_restore
-    
-    def forward(self, x, mask_ids=None, len_keep=None, return_attn=False,no_norm=False,mask_enable=False,**kwargs):
-  
-        if mask_enable and (self.mask_ratio > 0. or mask_ids is not None):
-            x, _,_ = self.random_masking(x,self.mask_ratio,mask_ids,len_keep)
 
-        _label = kwargs['label'] if 'label' in kwargs else None    
+    def forward(self, x, mask_ids=None, len_keep=None, return_attn=False, no_norm=False, mask_enable=False, **kwargs):
+
+        if mask_enable and (self.mask_ratio > 0. or mask_ids is not None):
+            x, _, _ = self.random_masking(x, self.mask_ratio, mask_ids, len_keep)
+
+        _label = kwargs['label'] if 'label' in kwargs else None
         _criterion = kwargs['criterion'] if 'criterion' in kwargs else None
 
-        prediction_bag, attn, B, other = self.attention(x, no_norm, _label, _criterion,return_attn=return_attn)
+        prediction_bag, attn, B, other = self.attention(x, no_norm, _label, _criterion, return_attn=return_attn)
 
         logits = prediction_bag
 
         if return_attn:
             return B, logits, other, attn
-        else:   
+        else:
             return B, logits, other
-        
+
 
 def get_act(act):
     if act.lower() == 'relu':
@@ -440,11 +419,11 @@ def get_act(act):
         return torch.nn.SiLU()
     else:
         raise ValueError(f'Invalid activation function: {act}')
-import torch
+
+
 import torch.nn as nn
-#from timm.models.layers import trunc_normal_
-import numpy as np
 from src.components.nystrom_attention import NystromAttention
+
 
 # --------------------------------------------------------
 # Modified by Swin@Microsoft
@@ -468,6 +447,7 @@ class Mlp(nn.Module):
         x = self.drop(x)
         return x
 
+
 def region_partition(x, region_size):
     """
     Args:
@@ -480,6 +460,7 @@ def region_partition(x, region_size):
     x = x.view(B, H // region_size, region_size, W // region_size, region_size, C)
     regions = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, region_size, region_size, C)
     return regions
+
 
 def region_reverse(regions, region_size, H, W):
     """
@@ -496,6 +477,7 @@ def region_reverse(regions, region_size, H, W):
     x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, H, W, -1)
     return x
 
+
 class InnerAttention(nn.Module):
     r""" Window based multi-head self attention (W-MSA) module with relative position bias.
     It supports both of shifted and non-shifted region.
@@ -509,11 +491,12 @@ class InnerAttention(nn.Module):
         proj_drop (float, optional): Dropout ratio of output. Default: 0.0
     """
 
-    def __init__(self, dim, head_dim=None, region_size=None, num_heads=8, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.,conv=True,conv_k=15,conv_2d=False,conv_bias=True,conv_type='attn'):
+    def __init__(self, dim, head_dim=None, region_size=None, num_heads=8, qkv_bias=True, qk_scale=None, attn_drop=0.,
+                 proj_drop=0., conv=True, conv_k=15, conv_2d=False, conv_bias=True, conv_type='attn'):
 
         super().__init__()
         self.dim = dim
-        self.region_size = [region_size,region_size] if region_size is not None else None  # Wh, Ww
+        self.region_size = [region_size, region_size] if region_size is not None else None  # Wh, Ww
         self.num_heads = num_heads
         if head_dim is None:
             head_dim = dim // num_heads
@@ -523,7 +506,8 @@ class InnerAttention(nn.Module):
         if region_size is not None:
             # define a parameter table of relative position bias
             self.relative_position_bias_table = nn.Parameter(
-                torch.zeros((2 * self.region_size[0] - 1) * (2 * self.region_size[1] - 1), num_heads))  # 2*Wh-1 * 2*Ww-1, nH
+                torch.zeros((2 * self.region_size[0] - 1) * (2 * self.region_size[1] - 1),
+                            num_heads))  # 2*Wh-1 * 2*Ww-1, nH
 
             # get pair-wise relative position index for each token inside the region
             coords_h = torch.arange(self.region_size[0])
@@ -549,18 +533,21 @@ class InnerAttention(nn.Module):
         if conv:
             kernel_size = conv_k
             padding = kernel_size // 2
-            
+
             if conv_2d:
                 if conv_type == 'attn':
-                    self.pe = nn.Conv2d(num_heads, num_heads, kernel_size, padding = padding, groups = num_heads, bias = conv_bias)
+                    self.pe = nn.Conv2d(num_heads, num_heads, kernel_size, padding=padding, groups=num_heads,
+                                        bias=conv_bias)
                 else:
-                    self.pe = nn.Conv2d(head_dim * num_heads, head_dim * num_heads, kernel_size, padding = padding, groups = head_dim * num_heads, bias = conv_bias)
+                    self.pe = nn.Conv2d(head_dim * num_heads, head_dim * num_heads, kernel_size, padding=padding,
+                                        groups=head_dim * num_heads, bias=conv_bias)
             else:
                 if conv_type == 'attn':
-                    self.pe = nn.Conv2d(num_heads, num_heads, (kernel_size, 1), padding = (padding, 0), groups = num_heads, bias = conv_bias)
+                    self.pe = nn.Conv2d(num_heads, num_heads, (kernel_size, 1), padding=(padding, 0), groups=num_heads,
+                                        bias=conv_bias)
                 else:
-                    self.pe = nn.Conv2d(head_dim *num_heads, head_dim *num_heads, (kernel_size, 1), padding = (padding, 0), groups = head_dim *num_heads, bias = conv_bias)
-                # self.pe = nn.Conv2d(num_heads, num_heads, (1, kernel_size), padding = (0, padding), groups = num_heads, bias = conv_bias)
+                    self.pe = nn.Conv2d(head_dim * num_heads, head_dim * num_heads, (kernel_size, 1),
+                                        padding=(padding, 0), groups=head_dim * num_heads, bias=conv_bias)
         else:
             self.pe = None
 
@@ -574,8 +561,6 @@ class InnerAttention(nn.Module):
         """
         B_, N, C = x.shape
 
-        # x = self.pe(x)
-
         qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
 
@@ -583,18 +568,13 @@ class InnerAttention(nn.Module):
         attn = (q @ k.transpose(-2, -1))
 
         if self.pe is not None and self.conv_type == 'attn':
-            #print(attn.size())
-            # B,H,N,N ->B,H,N,N-0.5,N-0.5
-            # if self.conv_2d:
-            #     pe = self.pe(attn.permute(0,2,1,3).reshape(-1,self.num_heads,int(np.ceil(np.sqrt(N))),int(np.ceil(np.sqrt(N)))))
-            #     attn = attn+pe.reshape(B_,N,self.num_heads,N).transpose(1,2)
-            # else:
             pe = self.pe(attn)
-            attn = attn+pe
+            attn = attn + pe
 
         if self.region_size is not None:
             relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
-                self.region_size[0] * self.region_size[1], self.region_size[0] * self.region_size[1], -1)  # Wh*Ww,Wh*Ww,nH
+                self.region_size[0] * self.region_size[1], self.region_size[0] * self.region_size[1],
+                -1)  # Wh*Ww,Wh*Ww,nH
             relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
             attn = attn + relative_position_bias.unsqueeze(0)
 
@@ -609,21 +589,15 @@ class InnerAttention(nn.Module):
         attn = self.attn_drop(attn)
 
         if self.pe is not None and self.conv_type == 'value_bf':
-            # B,H,N,C -> B,HC,N-0.5,N-0.5 
-            pe = self.pe(v.permute(0,3,1,2).reshape(B_,C,int(np.ceil(np.sqrt(N))),int(np.ceil(np.sqrt(N)))))
-            #pe = torch.einsum('ahbd->abhd',pe).flatten(-2,-1)
-            v = v + pe.reshape(B_,self.num_heads, self.head_dim,N).permute(0,1,3,2)
+            # B,H,N,C -> B,HC,N-0.5,N-0.5
+            pe = self.pe(v.permute(0, 3, 1, 2).reshape(B_, C, int(np.ceil(np.sqrt(N))), int(np.ceil(np.sqrt(N)))))
+            v = v + pe.reshape(B_, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)
 
-        # print(v.size())
+        x = (attn @ v).transpose(1, 2).reshape(B_, N, self.num_heads * self.head_dim)
 
-        x = (attn @ v).transpose(1, 2).reshape(B_, N, self.num_heads*self.head_dim)
-        
         if self.pe is not None and self.conv_type == 'value_af':
-            #print(v.size())
-            pe = self.pe(v.permute(0,3,1,2).reshape(B_,C,int(np.ceil(np.sqrt(N))),int(np.ceil(np.sqrt(N)))))
-            # print(pe.size())
-            # print(v.size())
-            x = x + pe.reshape(B_,self.num_heads*self.head_dim,N).transpose(-1,-2)
+            pe = self.pe(v.permute(0, 3, 1, 2).reshape(B_, C, int(np.ceil(np.sqrt(N))), int(np.ceil(np.sqrt(N)))))
+            x = x + pe.reshape(B_, self.num_heads * self.head_dim, N).transpose(-1, -2)
 
         x = self.proj(x)
         x = self.proj_drop(x)
@@ -636,20 +610,19 @@ class InnerAttention(nn.Module):
     def flops(self, N):
         # calculate flops for 1 region with token length of N
         flops = 0
-        # qkv = self.qkv(x)
         flops += N * self.dim * 3 * self.dim
-        # attn = (q @ k.transpose(-2, -1))
         flops += self.num_heads * N * (self.dim // self.num_heads) * N
-        #  x = (attn @ v)
         flops += self.num_heads * N * N * (self.dim // self.num_heads)
-        # x = self.proj(x)
         flops += N * self.dim * self.dim
         return flops
 
+
 class RegionAttntion(nn.Module):
-    def __init__(self, dim, input_resolution=None, head_dim=None,num_heads=8, region_size=0, shift_size=False, qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., region_num=8,conv=False,rpe=False,min_region_num=0,min_region_ratio=0.0,region_attn='native',**kawrgs):
+    def __init__(self, dim, input_resolution=None, head_dim=None, num_heads=8, region_size=0, shift_size=False,
+                 qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., region_num=8, conv=False, rpe=False,
+                 min_region_num=0, min_region_ratio=0.0, region_attn='native', **kawrgs):
         super().__init__()
- 
+
         self.dim = dim
         self.input_resolution = input_resolution
         self.num_heads = num_heads
@@ -659,15 +632,15 @@ class RegionAttntion(nn.Module):
         self.min_region_num = min_region_num
         self.min_region_ratio = min_region_ratio
         self.rpe = rpe
-        
+
         if self.region_size is not None:
             self.region_num = None
         self.fused_region_process = False
 
         if region_attn == 'native':
             self.attn = InnerAttention(
-                dim, head_dim=head_dim,num_heads=num_heads,region_size=self.region_size if rpe else None,
-                qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop,conv=conv,**kawrgs)
+                dim, head_dim=head_dim, num_heads=num_heads, region_size=self.region_size if rpe else None,
+                qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop, conv=conv, **kawrgs)
         elif region_attn == 'ntrans':
             self.attn = NystromAttention(
                 dim=dim,
@@ -678,40 +651,38 @@ class RegionAttntion(nn.Module):
 
         self.attn_mask = None
 
-    def padding(self,x):
+    def padding(self, x):
         B, L, C = x.shape
         if self.region_size is not None:
             H, W = int(np.ceil(np.sqrt(L))), int(np.ceil(np.sqrt(L)))
-            # print(L)
-            # print(H)
             _n = -H % self.region_size
-            H, W = H+_n, W+_n
+            H, W = H + _n, W + _n
             region_num = int(H // self.region_size)
             region_size = self.region_size
         else:
             H, W = int(np.ceil(np.sqrt(L))), int(np.ceil(np.sqrt(L)))
             _n = -H % self.region_num
-            H, W = H+_n, W+_n
+            H, W = H + _n, W + _n
             region_size = int(H // self.region_num)
             region_num = self.region_num
-        
+
         add_length = H * W - L
-        if (add_length > L / (self.min_region_ratio+1e-8) or L < self.min_region_num) and not self.rpe:
+        if (add_length > L / (self.min_region_ratio + 1e-8) or L < self.min_region_num) and not self.rpe:
             H, W = int(np.ceil(np.sqrt(L))), int(np.ceil(np.sqrt(L)))
             _n = -H % 2
-            H, W = H+_n, W+_n
+            H, W = H + _n, W + _n
             add_length = H * W - L
             region_size = H
         if add_length > 0:
-            x = torch.cat([x, torch.zeros((B,add_length,C),device=x.device)],dim = 1)
-        
-        return x,H,W,add_length,region_num,region_size
+            x = torch.cat([x, torch.zeros((B, add_length, C), device=x.device)], dim=1)
 
-    def forward(self,x,return_attn=False):
+        return x, H, W, add_length, region_num, region_size
+
+    def forward(self, x, return_attn=False):
         B, L, C = x.shape
-        
+
         # padding
-        x,H,W,add_length,region_num,region_size = self.padding(x)
+        x, H, W, add_length, region_num, region_size = self.padding(x)
 
         x = x.view(B, H, W, C)
 
@@ -730,15 +701,17 @@ class RegionAttntion(nn.Module):
 
         x = x.view(B, H * W, C)
 
-        if add_length >0:
-            x = x[:,:-add_length]
+        if add_length > 0:
+            x = x[:, :-add_length]
 
         return x
+
 
 import torch
 import torch.nn as nn
 from timm.models.layers import DropPath
 import numpy as np
+
 
 class PatchMerging(nn.Module):
     r""" Patch Merging Layer.
@@ -764,14 +737,10 @@ class PatchMerging(nn.Module):
         # padding
         H, W = int(np.ceil(np.sqrt(L))), int(np.ceil(np.sqrt(L)))
         _n = -H % 2
-        H, W = H+_n, W+_n
+        H, W = H + _n, W + _n
         add_length = H * W - L
         if add_length > 0:
-            x = torch.cat([x, torch.zeros((B,add_length,C),device=x.device)],dim = 1)
-
-        # H,W = int(L**0.5),int(L**0.5)
-        # assert L == H * W, "input feature has wrong size"
-        # assert H % 2 == 0 and W % 2 == 0, f"x size ({H}*{W}) are not even."
+            x = torch.cat([x, torch.zeros((B, add_length, C), device=x.device)], dim=1)
 
         x = x.view(B, H, W, C)
 
@@ -796,6 +765,7 @@ class PatchMerging(nn.Module):
         flops += (H // 2) * (W // 2) * 4 * self.dim * 2 * self.dim
         return flops
 
+
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.ReLU, drop=0.):
         super().__init__()
@@ -814,26 +784,32 @@ class Mlp(nn.Module):
         x = self.drop(x)
         return x
 
+
 class TransLayer1(nn.Module):
-    def __init__(self, norm_layer=nn.LayerNorm, dim=512,head=8,drop_out=0.1,drop_path=0.,need_down=False,need_reduce=False,down_ratio=2,ffn=False,ffn_act='gelu',mlp_ratio=4.,trans_dim=64,n_cycle=1,attn='ntrans',n_region=8,epeg=False,shift_size=False,region_size=0,rpe=False,min_region_num=0,min_region_ratio=0.0,qkv_bias=True,**kwargs):
+    def __init__(self, norm_layer=nn.LayerNorm, dim=512, head=8, drop_out=0.1, drop_path=0., need_down=False,
+                 need_reduce=False, down_ratio=2, ffn=False, ffn_act='gelu', mlp_ratio=4., trans_dim=64, n_cycle=1,
+                 attn='ntrans', n_region=8, epeg=False, shift_size=False, region_size=0, rpe=False, min_region_num=0,
+                 min_region_ratio=0.0, qkv_bias=True, **kwargs):
         super().__init__()
 
         if need_reduce:
-            self.reduction = nn.Linear(dim, dim//down_ratio, bias=False)
+            self.reduction = nn.Linear(dim, dim // down_ratio, bias=False)
             dim = dim // down_ratio
         else:
             self.reduction = nn.Identity()
-        
+
         self.norm = norm_layer(dim)
         self.norm2 = norm_layer(dim) if ffn else nn.Identity()
         if attn == 'ntrans':
             self.attn = NystromAttention(
-                dim = dim,
-                dim_head = trans_dim,  # dim // 8
-                heads = head,
-                num_landmarks = 256,    # number of landmarks dim // 2
-                pinv_iterations = 6,    # number of moore-penrose iterations for approximating pinverse. 6 was recommended by the paper
-                residual = True,         # whether to do an extra residual with the value or not. supposedly faster convergence if turned on
+                dim=dim,
+                dim_head=trans_dim,  # dim // 8
+                heads=head,
+                num_landmarks=256,  # number of landmarks dim // 2
+                pinv_iterations=6,
+                # number of moore-penrose iterations for approximating pinverse. 6 was recommended by the paper
+                residual=True,
+                # whether to do an extra residual with the value or not. supposedly faster convergence if turned on
                 dropout=drop_out
             )
         elif attn == 'rrt':
@@ -854,34 +830,25 @@ class TransLayer1(nn.Module):
             )
         else:
             raise NotImplementedError
-        # elif attn == 'rrt1d':
-        #     self.attn = RegionAttntion1D(
-        #         dim=dim,
-        #         num_heads=head,
-        #         drop=drop_out,
-        #         region_num=n_region,
-        #         head_dim=trans_dim,
-        #         conv=epeg,
-        #         **kwargs
-        #     )
 
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.ffn = ffn
         act_layer = nn.GELU if ffn_act == 'gelu' else nn.ReLU
-        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim,act_layer=act_layer,drop=drop_out) if ffn else nn.Identity()
+        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer,
+                       drop=drop_out) if ffn else nn.Identity()
 
-        self.downsample = PatchMerging(None,dim) if need_down else nn.Identity()
+        self.downsample = PatchMerging(None, dim) if need_down else nn.Identity()
 
         self.n_cycle = n_cycle
 
-    def forward(self,x,need_attn=False):
+    def forward(self, x, need_attn=False):
         attn = None
         for i in range(self.n_cycle):
-            x,attn = self.forward_trans(x,need_attn=need_attn)
-        
+            x, attn = self.forward_trans(x, need_attn=need_attn)
+
         if need_attn:
-            return x,attn
+            return x, attn
         else:
             return x
 
@@ -890,13 +857,13 @@ class TransLayer1(nn.Module):
 
         x = self.reduction(x)
         B, L, C = x.shape
-        
+
         if need_attn:
-            z,attn = self.attn(self.norm(x),return_attn=need_attn)
+            z, attn = self.attn(self.norm(x), return_attn=need_attn)
         else:
             z = self.attn(self.norm(x))
 
-        x = x+self.drop_path(z)
+        x = x + self.drop_path(z)
 
         # FFN
         if self.ffn:
@@ -904,21 +871,22 @@ class TransLayer1(nn.Module):
 
         x = self.downsample(x)
 
-        return x,attn
+        return x, attn
+
 
 class RRTEncoder(nn.Module):
-    def __init__(self, mlp_dim=512, pos_pos='ppeg', pos='none', peg_k=7, attn='ntrans', 
-        region_num=8, drop_out=0.1, n_layers=1, n_heads=8,
-         multi_scale=False, drop_path=0.1, pool='attn', da_act='tanh',
-        reduce_ratio=0, ffn=False, ffn_act='gelu', mlp_ratio=4., da_gated=False,
-        da_bias=False, da_dropout=False, trans_dim=64, n_cycle=1, epeg=True,
-        rpe=False, region_size=0, min_region_num=0, min_region_ratio=0.0,
-        qkv_bias=True, shift_size=False, peg_bias=True, peg_1d=False,**kwargs):
+    def __init__(self, mlp_dim=512, pos_pos='ppeg', pos='none', peg_k=7, attn='ntrans',
+                 region_num=8, drop_out=0.1, n_layers=1, n_heads=8,
+                 multi_scale=False, drop_path=0.1, pool='attn', da_act='tanh',
+                 reduce_ratio=0, ffn=False, ffn_act='gelu', mlp_ratio=4., da_gated=False,
+                 da_bias=False, da_dropout=False, trans_dim=64, n_cycle=1, epeg=True,
+                 rpe=False, region_size=0, min_region_num=0, min_region_ratio=0.0,
+                 qkv_bias=True, shift_size=False, peg_bias=True, peg_1d=False, **kwargs):
         super(RRTEncoder, self).__init__()
 
-        self.final_dim = mlp_dim // (2**reduce_ratio) if reduce_ratio > 0 else mlp_dim
+        self.final_dim = mlp_dim // (2 ** reduce_ratio) if reduce_ratio > 0 else mlp_dim
         if multi_scale:
-            self.final_dim *= (2**(n_layers - 1))
+            self.final_dim *= (2 ** (n_layers - 1))
 
         self.pool = pool
         if self.pool == 'attn':
@@ -927,7 +895,7 @@ class RRTEncoder(nn.Module):
         self.norm = nn.LayerNorm(self.final_dim)
         self.layer1 = TransLayer1(dim=mlp_dim, head=n_heads, drop_out=drop_out, drop_path=drop_path,
                                   need_down=multi_scale, need_reduce=reduce_ratio != 0,
-                                  down_ratio=2**reduce_ratio, ffn=ffn, ffn_act=ffn_act,
+                                  down_ratio=2 ** reduce_ratio, ffn=ffn, ffn_act=ffn_act,
                                   mlp_ratio=mlp_ratio, trans_dim=trans_dim, n_cycle=n_cycle,
                                   n_region=region_num, epeg=epeg, rpe=rpe,
                                   region_size=region_size, min_region_num=min_region_num,
@@ -936,7 +904,7 @@ class RRTEncoder(nn.Module):
 
         if n_layers >= 2:
             layers = []
-            current_dim = mlp_dim // (2**reduce_ratio) if reduce_ratio > 0 else mlp_dim
+            current_dim = mlp_dim // (2 ** reduce_ratio) if reduce_ratio > 0 else mlp_dim
             if multi_scale:
                 current_dim *= 2
 
@@ -949,7 +917,7 @@ class RRTEncoder(nn.Module):
                                           min_region_ratio=min_region_ratio, qkv_bias=qkv_bias))
                 if multi_scale:
                     current_dim *= 2
-            
+
             layers.append(TransLayer1(dim=current_dim, head=n_heads, drop_out=drop_out, drop_path=drop_path,
                                       ffn=ffn, ffn_act=ffn_act, mlp_ratio=mlp_ratio,
                                       trans_dim=trans_dim, n_cycle=n_cycle, n_region=region_num,
@@ -959,25 +927,22 @@ class RRTEncoder(nn.Module):
             self.layers = nn.Sequential(*layers)
         else:
             self.layers = nn.Identity()
-        
+
         if pos == 'ppeg':
-            self.pos_embedding = PPEG(dim=mlp_dim,k=peg_k,bias=peg_bias,conv_1d=peg_1d)
+            self.pos_embedding = PPEG(dim=mlp_dim, k=peg_k, bias=peg_bias, conv_1d=peg_1d)
         elif pos == 'sincos':
             self.pos_embedding = SINCOS(embed_dim=mlp_dim)
         elif pos == 'peg':
-            self.pos_embedding = PEG(mlp_dim,k=peg_k,bias=peg_bias,conv_1d=peg_1d)
+            self.pos_embedding = PEG(mlp_dim, k=peg_k, bias=peg_bias, conv_1d=peg_1d)
         else:
             self.pos_embedding = nn.Identity()
 
         self.pos_pos = pos_pos
 
-            
-
-
     def forward(self, x, return_attn=False, no_norm=False):
         if len(x.shape) == 2:
             x = x.unsqueeze(0)
-        
+
         x = self.layer1(x)
         x = self.layers(x)
         x = self.norm(x)
@@ -986,8 +951,9 @@ class RRTEncoder(nn.Module):
             if return_attn:
                 return self.pool_fn(x, return_attn=True, no_norm=no_norm)
             return self.pool_fn(x)
-        
-        return x.mean(dim=1) # Fallback for other pooling types
+
+        return x.mean(dim=1)  # Fallback for other pooling types
+
 
 class RRTMIL(MIL):
     def __init__(
@@ -1028,31 +994,37 @@ class RRTMIL(MIL):
             **kwargs
     ):
         super().__init__(in_dim=in_dim, embed_dim=embed_dim, num_classes=num_classes)
-        
+
         patch_to_emb = [nn.Linear(in_dim, embed_dim)]
         if act.lower() == 'relu':
             patch_to_emb.append(nn.ReLU())
         elif act.lower() == 'gelu':
             patch_to_emb.append(nn.GELU())
-        
+
         self.patch_embed = nn.Sequential(*patch_to_emb)
         self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
-        
-        self.encoder = RRTEncoder(mlp_dim=mlp_dim, n_layers=n_layers, n_heads=n_heads, drop_out=drop_out, drop_path=drop_path, multi_scale=multi_scale, ffn=ffn, ffn_act=ffn_act, mlp_ratio=mlp_ratio, trans_dim=trans_dim, n_cycle=n_cycle, region_num=region_num, epeg=epeg, rpe=rpe, region_size=region_size, min_region_num=min_region_num, min_region_ratio=min_region_ratio, qkv_bias=qkv_bias, shift_size=shift_size, pos=pos, pos_pos=pos_pos, peg_k=peg_k, peg_bias=peg_bias, peg_1d=peg_1d, pool=pool, mask_ratio=mask_ratio, cls_attn=cls_attn, attn_index=attn_index, **kwargs)
-        
+
+        self.encoder = RRTEncoder(mlp_dim=mlp_dim, n_layers=n_layers, n_heads=n_heads, drop_out=drop_out,
+                                  drop_path=drop_path, multi_scale=multi_scale, ffn=ffn, ffn_act=ffn_act,
+                                  mlp_ratio=mlp_ratio, trans_dim=trans_dim, n_cycle=n_cycle, region_num=region_num,
+                                  epeg=epeg, rpe=rpe, region_size=region_size, min_region_num=min_region_num,
+                                  min_region_ratio=min_region_ratio, qkv_bias=qkv_bias, shift_size=shift_size, pos=pos,
+                                  pos_pos=pos_pos, peg_k=peg_k, peg_bias=peg_bias, peg_1d=peg_1d, pool=pool,
+                                  mask_ratio=mask_ratio, cls_attn=cls_attn, attn_index=attn_index, **kwargs)
+
         if num_classes > 0:
             self.classifier = nn.Linear(self.encoder.final_dim, num_classes)
-        
+
         self.initialize_weights()
 
     def forward_attention(self, h: torch.Tensor, attn_mask=None, attn_only=True):
         h = self.patch_embed(h)
         h = self.dropout(h)
-        
+
         if attn_only:
             _, A = self.encoder(h, return_attn=True)
             return A
-        
+
         h, A = self.encoder(h, return_attn=True)
         return h, A
 
@@ -1069,10 +1041,10 @@ class RRTMIL(MIL):
                 attn_mask=None,
                 return_attention: bool = False,
                 return_slide_feats: bool = False) -> tuple[dict, dict]:
-        
+
         h, log_dict = self.forward_features(h, attn_mask=attn_mask)
         logits = self.forward_head(h)
-        
+
         cls_loss = self.compute_loss(loss_fn, logits, label)
         results_dict = {'logits': logits, 'loss': cls_loss}
         log_dict['loss'] = cls_loss.item() if cls_loss is not None else -1
@@ -1080,6 +1052,7 @@ class RRTMIL(MIL):
             log_dict['slide_feats'] = h
 
         return results_dict, log_dict
+
 
 @dataclass
 class RRTMILConfig(PretrainedConfig):
@@ -1120,7 +1093,7 @@ class RRTMILConfig(PretrainedConfig):
                  no_norm: bool = False,
                  **kwargs):
         super().__init__(**kwargs)
-        
+
         self.in_dim = in_dim
         self.mlp_dim = mlp_dim
         self.embed_dim = embed_dim
@@ -1153,6 +1126,7 @@ class RRTMILConfig(PretrainedConfig):
         self.qkv_bias = qkv_bias
         self.shift_size = shift_size
         self.no_norm = no_norm
+
 
 class RRTMILModel(PreTrainedModel):
     """Hugging Face wrapper for the RRTMIL model."""
@@ -1199,7 +1173,6 @@ class RRTMILModel(PreTrainedModel):
         self.forward_features = self.model.forward_features
         self.forward_head = self.model.forward_head
         self.initialize_classifier = self.model.initialize_classifier
-
 
 
 # Register the model with Hugging Face AutoClass

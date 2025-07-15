@@ -1,4 +1,3 @@
-
 from src.models.mil_template import MIL
 import torch
 import torch.nn as nn
@@ -26,6 +25,7 @@ class ABMIL(MIL):
         gate (int): Whether to use gated attention (True) or standard attention (False) (default: True).
         num_classes (int): Number of output classes for the classification head (default: 2).
     """
+
     def __init__(
             self,
             in_dim: int = 1024,
@@ -40,7 +40,7 @@ class ABMIL(MIL):
         self.patch_embed = create_mlp(
             in_dim=in_dim,
             hid_dims=[embed_dim] *
-            (num_fc_layers - 1),
+                     (num_fc_layers - 1),
             dropout=dropout,
             out_dim=embed_dim,
             end_with_fc=False
@@ -57,7 +57,6 @@ class ABMIL(MIL):
         if num_classes > 0:
             self.classifier = nn.Linear(embed_dim, num_classes)
         self.initialize_weights()
-
 
     def forward_attention(self, h: torch.Tensor, attn_mask=None, attn_only=True) -> torch.Tensor:
         """
@@ -78,7 +77,7 @@ class ABMIL(MIL):
                 (h, A) where h is the embedded features of shape [B, M, D'] and A is the attention scores.
         """
         h = self.patch_embed(h)
-        A = self.global_attn(h)       # B x M x K
+        A = self.global_attn(h)  # B x M x K
         A = torch.transpose(A, -2, -1)  # B x K x M
         if attn_mask is not None:
             A = A + (1 - attn_mask).unsqueeze(dim=1) * torch.finfo(A.dtype).min
@@ -98,28 +97,26 @@ class ABMIL(MIL):
         Returns:
             Tuple[torch.Tensor, dict]: Bag features [B, D] and attention weights.
         """
-        h, A_base = self.forward_attention(h, attn_mask=attn_mask, attn_only=False) # A == B x K x M
-        A = F.softmax(A_base, dim=-1)            # softmax over N
+        h, A_base = self.forward_attention(h, attn_mask=attn_mask, attn_only=False)  # A == B x K x M
+        A = F.softmax(A_base, dim=-1)  # softmax over N
         h = torch.bmm(A, h).squeeze(dim=1)  # B x K x C --> B x C
         log_dict = {'attention': A_base if return_attention else None}
         return h, log_dict
-    
 
     def forward_head(self, h: torch.Tensor) -> torch.Tensor:
         """
         Args:
             h: [B x D]-dim torch.Tensor.
-        
+
         Returns:
             logits: [B x num_classes]-dim torch.Tensor.
         """
         logits = self.classifier(h)
         return logits
-    
 
     def forward(self, h: torch.Tensor,
-                loss_fn: nn.Module=None,
-                label: torch.LongTensor=None,
+                loss_fn: nn.Module = None,
+                label: torch.LongTensor = None,
                 attn_mask=None,
                 return_attention: bool = False,
                 return_slide_feats: bool = False) -> torch.Tensor:
@@ -176,18 +173,19 @@ class ABMILGatedBaseConfig(PretrainedConfig):
     """
 
     model_type = MODEL_TYPE
-    # add mapping 
 
-    def __init__(self, 
-        gate: bool = True,
-        embed_dim: int = 512,
-        attn_dim: int = 384,
-        num_fc_layers: int = 1,
-        dropout: float = 0.25,
-        in_dim: int = 1024,
-        num_classes: int = 2, 
-        **kwargs):
+    # add mapping
 
+    # _target_: str = "src.models.abmil.ABMIL"
+    def __init__(self,
+                 gate: bool = True,
+                 embed_dim: int = 512,
+                 attn_dim: int = 384,
+                 num_fc_layers: int = 1,
+                 dropout: float = 0.25,
+                 in_dim: int = 1024,
+                 num_classes: int = 2,
+                 **kwargs):
         super().__init__(**kwargs)
         self.gate = gate
         self.embed_dim = embed_dim
