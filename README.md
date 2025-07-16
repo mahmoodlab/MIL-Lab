@@ -27,9 +27,9 @@ We have expanded the PC-108 dataset to span 24K slides from patients treated at 
 
 | Model    | Patch enc. | Link            | How to load |
 |---------------------|--------------|---------------------| -- |
-| **FEATHER-24K**      |   CONCHv1.5    | [HF Link](https://huggingface.co/mahmoodlab/abmil.base.conch_v15.pc108-24k) |`create_model('abmil.base.conch_v15.pc108-24k', from_pretrained=True)` |
-| **FEATHER-24K**      |   UNIv2    | [HF Link](https://huggingface.co/mahmoodlab/abmil.base.uni_v2.pc108-24k) | `create_model('abmil.base.uni_v2.pc108-24k', from_pretrained=True)` |
-| **FEATHER-24K**      |   UNI    | [HF Link](https://huggingface.co/mahmoodlab/abmil.base.uni.pc108-24k) | `create_model('abmil.base.uni.pc108-24k', from_pretrained=True)` |
+| **FEATHER-24K**      |   CONCHv1.5    | [HF Link](https://huggingface.co/mahmoodlab/abmil.base.conch_v15.pc108-24k) |`create_model('abmil.base.conch_v15.pc108-24k')` |
+| **FEATHER-24K**      |   UNIv2    | [HF Link](https://huggingface.co/mahmoodlab/abmil.base.uni_v2.pc108-24k) | `create_model('abmil.base.uni_v2.pc108-24k')` |
+| **FEATHER-24K**      |   UNI    | [HF Link](https://huggingface.co/mahmoodlab/abmil.base.uni.pc108-24k) | `create_model('abmil.base.uni.pc108-24k')` |
 
 
 ## Benchmarking against slide foundation models
