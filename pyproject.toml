@@ -7,12 +7,15 @@ name = "src"
 version = "0.1.0"
 description = ""
 readme = "README.md"
-requires-python = ">=3.9.0,<3.11"
+requires-python = ">=3.9.0,<3.11" # This belongs under [project]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: CC BY-NC 4.0",
 ]
 dynamic = ["dependencies"]
+
+[project.scripts] # Scripts for Setuptools go under [project.scripts]
+create_model = "src.builder:create_model"
 
 [tool.setuptools.dynamic]
 dependencies = {file = "requirements.txt"}
@@ -22,3 +25,5 @@ exclude = ["dev*", "temp*", "docs", "dist*", "scripts*", "tests*", "checkpoints*
 
 [tool.wheel]
 exclude = ["dev*", "temp*", "docs", "dist*", "scripts*", "tests*", "checkpoints*"]
+
+
