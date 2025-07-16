@@ -40,10 +40,12 @@ class ModelDict:
     def _infer_random_task(model_name: str) -> str:
         """
         Check if only 3 parts are provided, and if so, infer the task as 'none'
+        # abmil.base.conch_v15.pc108-24k
         """
-        if len(model_name.split('.')) == 3:
+        parts = model_name.split('.')
+        if len(parts) == 3:
             print(f'"Model name {model_name} does not have a task, using default task {NO_PRETRAIN_STR}.')
-            return f'{model_name}.{NO_PRETRAIN_STR}'
+            return f'{parts[0]}.{parts[1]}.{parts[2]}.{NO_PRETRAIN_STR}'
         return model_name
 
     @staticmethod

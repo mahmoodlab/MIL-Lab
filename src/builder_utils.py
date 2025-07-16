@@ -1,3 +1,4 @@
+import pdb
 from pathlib import Path
 import os
 import torch
@@ -145,6 +146,13 @@ def _find_pretrained_source(hf_path, local_folder):
         return path_to_local
     hf_path, subfolder = _clean_model_id(hf_path, '')
     assert subfolder == '', f'loading from_pretrained does not allow subfolders in repo: received {hf_path}/{subfolder}'
+
+    from huggingface_hub import snapshot_download
+    hf_path = snapshot_download(
+        repo_id=hf_path,
+        revision="main",
+        allow_patterns=["*.py", "model.safetensors", "pytorch_model.bin", "config.json"]
+    )
     return hf_path
 
 
