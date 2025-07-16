@@ -10,12 +10,13 @@ This project was developed by the [Mahmood Lab](https://faisal.ai/) at Harvard M
 
 ### Key Features:
 
-- **Lightweight supervised foundation models**: We provide **FEATHER**, *a lightweight supervised slide foundation model* that can easily be finetuned on consumer-grade GPUs, using orders of magnitude less parameters than other self-supervised slide foundation models while achieving competitive performance.
+- **Lightweight supervised slide foundation models**: We provide **FEATHER**, *a lightweight supervised slide foundation model* that can easily be finetuned on consumer-grade GPUs, using orders of magnitude less parameters than other self-supervised slide foundation models while achieving competitive performance.
 - **Standardized MIL implementation**: Construct numerous MIL methods with a single line of code.
 - **Support across encoders**: Load models trained on popular patch foundation models including [UNI](https://huggingface.co/MahmoodLab/UNI), [CONCHv1.5](https://huggingface.co/MahmoodLab/conchv1_5), and [UNIv2](https://huggingface.co/MahmoodLab/UNI2-h).
 - **Extensive Benchmarking**: Each model is evaluated on 15+ classification tasks in both morphological and molecular subtyping, with benchmarking against slide foundation models such as [TITAN](https://huggingface.co/MahmoodLab/TITAN), [THREADS](https://arxiv.org/abs/2501.16652), [Prov-GigaPath](https://huggingface.co/prov-gigapath/prov-gigapath), and [CHIEF](https://github.com/hms-dbmi/CHIEF).
 
 ### Updates:
+- 07/15/25: Feather-24K (CONCHv1.5) has been integrated into [TRIDENT](https://github.com/mahmoodlab/TRIDENT).
 - 07/15/25: MIL-lab is now live!
 
 ### In progress:
