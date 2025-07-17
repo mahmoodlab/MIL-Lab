@@ -17,6 +17,8 @@ class CLAMSB(MIL):
     This model integrates instance-level and bag-level learning through an attention mechanism
     and instance classifiers.
     """
+    
+    
 
     def __init__(self,
                  in_dim: int = 1024,  # Input dimension of each instance feature
@@ -63,12 +65,15 @@ class CLAMSB(MIL):
             # Note: SmoothTop1SVM would need to be imported and potentially moved to a device if used.
             # For this example, assuming it's available or handling device.
             try:
-                from topk.svm import SmoothTop1SVM # Uncomment if you have this library
+                from topk.svm import SmoothTop1SVM 
             except:
                 print(f'SmoothTop1SVM not found. '
                       f'Please install it via pip: pip install git+https://github.com/oval-group/smooth-topk')
             # pip install git+https://github.com/oval-group/smooth-topk
-            self.instance_loss_fn = SmoothTop1SVM(n_classes=2)
+            try:
+                self.instance_loss_fn = SmoothTop1SVM(n_classes=2).cuda()
+            except AssertionError:
+                raise AssertionError('SmoothTop1SVM requires CUDA to be available. If not available, please use the ce loss function')
         else:
             self.instance_loss_fn = nn.CrossEntropyLoss()
         self.initialize_weights()
@@ -82,6 +87,14 @@ class CLAMSB(MIL):
     def create_negative_targets(length: int, device: torch.device) -> torch.LongTensor:
         """Helper to create a tensor of negative (0) labels."""
         return torch.full((length,), 0, device=device).long()
+
+    def _check_inputs(self, features, loss_fn, label):
+        if features.dim() == 3 and features.shape[0] > 1:
+            raise ValueError(f'CLAM does not currently support batch size > 1')
+        if label is None:
+            raise ValueError(f'Label must be provided for CLAM')
+        if loss_fn is None:
+            raise ValueError("Loss function must be provided")
 
     def inst_eval(self, A: torch.Tensor, h: torch.Tensor, classifier: nn.Module) -> tuple[
         torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -193,6 +206,7 @@ class CLAMSB(MIL):
         logits = self.classifier(h)
         return logits
 
+    
     def forward_features(self, h: torch.Tensor, return_attention: bool = True) -> tuple[
         torch.Tensor, dict]:
         """
@@ -237,12 +251,10 @@ class CLAMSB(MIL):
         """
         if label is None:
             return None
-
         total_inst_loss = 0.0
         # Convert scalar label to one-hot for instance classifier selection
-        # F.one_hot expects an integer tensor, and outputs [batch_size, num_classes]
-        # Here, label is [B], so inst_labels will be [B, n_classes]
-        inst_labels = F.one_hot(label, num_classes=self.num_classes).squeeze(0)  # Squeeze to [n_classes] for single bag
+        # Ensure the one-hot tensor is on the same device as the input label
+        inst_labels = F.one_hot(label, num_classes=self.num_classes).squeeze(0).to(label.device)
 
         for i in range(len(self.instance_classifiers)):
             inst_label_for_class = inst_labels[i].item()  # Get 0 or 1 for current class 'i'
@@ -306,6 +318,7 @@ class CLAMSB(MIL):
                 - results_dict (dict): Dictionary with 'logits' and 'loss'
                 - log_dict (dict): Dictionary with 'instance_loss', 'cls_loss', 'loss'.
         """
+        self._check_inputs(h, loss_fn, label)
         # Get bag-level features, embedded instance features, and unnormalized attention scores
         # slide_feats: [B, E], instance_feats: [M, E], attention_scores: [1, M] (assuming B=1)
         slide_feats, intermeds = self.forward_features(h, return_attention=return_attention)

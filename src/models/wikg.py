@@ -81,6 +81,8 @@ class WIKGMIL(MIL):
         self.pool = pool
         self.dropout = dropout
         self.act = act
+
+        super().__init__(in_dim=in_dim, embed_dim=embed_dim, num_classes=num_classes)
         for k, v in kwargs.items():
             setattr(self, k, v)
 
