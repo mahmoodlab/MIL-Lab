@@ -82,6 +82,7 @@ Models are named as `<model_name>.<config>.<encoder>.<pretrain_task>`, with corr
 *Pretrained* models can be initialized either with a `state_dict` or with `AutoModel` 
 ```python
 from src.builder import create_model
+
 # construct the model from src and load the state dict from HuggingFace
 create_model('abmil.base.uni.pc108-24k', num_classes=5)
 
