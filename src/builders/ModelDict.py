@@ -189,10 +189,10 @@ class ModelDict:
             str: The task string based on the pretrained flag.
         """
         if pretrained:
-            if self.is_pretrained():
+            if not self.is_pretrained():
                 warnings.warn("Pretrained flag is True, but task is set to 'none'. Using random weights")
         else:
-            if not self.is_pretrained():
+            if self.is_pretrained():
                 warnings.warn(f'Pretrained flag is False, updating pretrain task from '
                               f'"{self.task}" to "{NO_PRETRAIN_STR}".')
                 self.task = NO_PRETRAIN_STR
