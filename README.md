@@ -45,7 +45,7 @@ FEATHER models offer an efficient pretraining alternative for slide foundation m
 | GigaPath<br>(GigaPath) | 72.6 | 72.6 | 79.3 | 54.6 | 94.5 | 86.3M | 171K |
 | CHIEF<br>(CTransPath) | 69.8 | 70.5 | 71.0 | 58.4 | 84.2 | 0.9M | 43K |
 
-All of the models are finetuned according to their official recipes. Train time is duration for one epoch of training on EBRAINS (1.2k WSIs) with a single A100 GPU. TCGA task group consists of the molecular subtyping tasks reported in the manuscript. 
+All of the models are finetuned according to their official recipes. TCGA task group consists of the molecular subtyping tasks reported in the manuscript. 
 
 ## Available MIL models
 We provide the list of MIL model implementations available in MIL-Lab, adapted from original implementations. This list will be continuously updated, so stay tuned! 
