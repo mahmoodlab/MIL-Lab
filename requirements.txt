@@ -19,7 +19,6 @@ omegaconf
 loguru
 torch_geometric
 matplotlib
-mpl_toolkits
-PIL
+pillow
 
 
