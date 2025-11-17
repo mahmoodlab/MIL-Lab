@@ -20,5 +20,9 @@ loguru
 torch_geometric
 matplotlib
 pillow
+seaborn
+# jupyter notebook
+ipykernel
+openslide-python
 
 

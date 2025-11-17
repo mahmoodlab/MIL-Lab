@@ -113,17 +113,21 @@ class CLAMSB(MIL):
         if len(A.shape) == 1:
             A = A.view(1, -1)
 
+        # Handle case where num_patches < k_sample
+        num_patches = A.shape[1]
+        k = min(self.k_sample, num_patches)
+
         # Select top-k positive instances based on attention scores
-        top_p_ids = torch.topk(A, self.k_sample)[1][-1]
+        top_p_ids = torch.topk(A, k)[1][-1]
         top_p = torch.index_select(h, dim=0, index=top_p_ids)
 
         # Select top-k negative instances (lowest attention)
-        top_n_ids = torch.topk(-A, self.k_sample, dim=1)[1][-1]
+        top_n_ids = torch.topk(-A, k, dim=1)[1][-1]
         top_n = torch.index_select(h, dim=0, index=top_n_ids)
 
-        # Create targets for selected instances
-        p_targets = self.create_positive_targets(self.k_sample, h.device)
-        n_targets = self.create_negative_targets(self.k_sample, h.device)
+        # Create targets for selected instances (use actual k, not k_sample)
+        p_targets = self.create_positive_targets(k, h.device)
+        n_targets = self.create_negative_targets(k, h.device)
         all_targets = torch.cat([p_targets, n_targets], dim=0)
 
         # Concatenate selected instances and get logits
@@ -153,12 +157,16 @@ class CLAMSB(MIL):
         if len(A.shape) == 1:
             A = A.view(1, -1)
 
+        # Handle case where num_patches < k_sample
+        num_patches = A.shape[1]
+        k = min(self.k_sample, num_patches)
+
         # Select top-k instances, which are treated as negative for out-of-class evaluation
-        top_p_ids = torch.topk(A, self.k_sample)[1][-1]
+        top_p_ids = torch.topk(A, k)[1][-1]
         top_p = torch.index_select(h, dim=0, index=top_p_ids)
 
-        # Targets are negative for these instances
-        p_targets = self.create_negative_targets(self.k_sample, h.device)
+        # Targets are negative for these instances (use actual k, not k_sample)
+        p_targets = self.create_negative_targets(k, h.device)
 
         # Get logits and compute loss
         logits = classifier(top_p)
@@ -186,6 +194,11 @@ class CLAMSB(MIL):
 
         # Compute attention scores
         A = self.global_attn(h)  # Output A: [M x 1] (or M x K if multiple heads)
+
+        # Ensure A is 2D before transpose (handle single patch case)
+        if len(A.shape) == 1:
+            A = A.view(-1, 1)  # Convert [M] to [M, 1]
+
         A = torch.transpose(A, 1, 0)  # Transpose to [1 x M] for consistency with CLAM's original logic
 
         if attention_only:
@@ -223,6 +236,12 @@ class CLAMSB(MIL):
         """
         # Get embedded instance features and unnormalized attention scores
         h_embedded, attention = self.forward_attention(h)  # h_embedded: [M, E], attention: [1, M]
+
+        # Ensure h_embedded is 2D (handle single patch case where it might collapse to 1D)
+        if len(h_embedded.shape) == 1:
+            h_embedded = h_embedded.unsqueeze(0)  # [E] -> [1, E]
+
+        # Store in log_dict AFTER ensuring correct shape
         log_dict = {'instance_feats': h_embedded}
         if return_attention:
             log_dict['attention'] = attention
