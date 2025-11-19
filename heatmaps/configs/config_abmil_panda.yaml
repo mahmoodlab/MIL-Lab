@@ -1,0 +1,135 @@
+# Heatmap Generation Configuration for AB-MIL on PANDA Dataset
+# This config is specifically designed for the PANDA prostate cancer dataset
+# Usage: python create_heatmaps.py --config heatmaps/configs/config_abmil_panda.yaml
+
+---
+exp_arguments:
+  # Number of output classes (ISUP grades: 0-5 = 6 classes, or binary normal/tumor)
+  n_classes: 2
+
+  # Experiment identifier
+  save_exp_code: ABMIL_PANDA_HEATMAPS
+
+  # Output directories
+  raw_save_dir: heatmaps/heatmap_raw_results
+  production_save_dir: heatmaps/heatmap_production_results
+
+  # Batch size for inference
+  batch_size: 512
+
+data_arguments:
+  # PANDA slide directory
+  # Update this to your actual PANDA slide location
+  data_dir: /path/to/panda/train_images/
+
+  # Slide file extension for PANDA (.tiff)
+  slide_ext: .tiff
+
+  # Pre-extracted features directory
+  # Update to match your feature extraction output
+  features_dir: /path/to/panda/features/h5_files
+
+  # Optional: CSV with specific slides to process
+  # Leave as null to process all slides in data_dir
+  process_list: null
+
+  # Label mapping for PANDA ISUP grades
+  # For binary classification (normal vs tumor):
+  label_dict:
+    normal: 0      # ISUP grade 0
+    tumor: 1       # ISUP grades 1-5
+
+  # For multi-class ISUP grading:
+  # label_dict:
+  #   isup_0: 0
+  #   isup_1: 1
+  #   isup_2: 2
+  #   isup_3: 3
+  #   isup_4: 4
+  #   isup_5: 5
+
+patching_arguments:
+  # Patch parameters (should match your feature extraction settings)
+  patch_size: 256
+  overlap: 0.0
+  patch_level: 0
+  custom_downsample: 1
+
+model_arguments:
+  # Path to your trained AB-MIL checkpoint
+  # Update this to your actual checkpoint path
+  ckpt_path: /path/to/abmil_panda_checkpoint.pt
+
+  # Model architecture
+  model_type: abmil
+
+  # Model parameters (should match your training config)
+  n_classes: 2
+  in_dim: 1024           # UNI features dimension
+  attention_dim: 256
+  dropout: 0.25
+
+  # If using different feature extractor:
+  # in_dim: 768    # for ViT-B
+  # in_dim: 2048   # for ResNet50
+
+heatmap_arguments:
+  # Visualization pyramid level
+  # -1 = auto-select (typically ~32x downsample)
+  # Higher numbers = lower resolution, faster processing
+  vis_level: -1
+
+  # Transparency for heatmap overlay
+  # 0.0 = show only original image
+  # 1.0 = show only heatmap
+  # 0.4 = balanced blend (recommended)
+  alpha: 0.4
+
+  # Whether to use blank canvas (false = overlay on original)
+  blank_canvas: false
+
+  # Save original H&E image alongside heatmap
+  save_orig: true
+
+  # Output image format
+  # Options: png (lossless), jpg (smaller files), tiff (large, uncompressed)
+  save_ext: png
+
+  # Normalize attention scores to percentiles for better contrast
+  convert_to_percentiles: true
+
+  # Apply Gaussian blur for smoother visualization
+  blur: false
+
+  # Binarize attention (show only high-attention regions)
+  binarize: false
+  binary_thresh: 0.5
+
+  # Additional downsampling for final output
+  # Useful for very large slides
+  custom_downsample: 1
+
+  # Colormap for attention visualization
+  # Recommended options:
+  #   - jet: Blue (low) -> Red (high) - classic, high contrast
+  #   - coolwarm: Blue -> White -> Red - diverging
+  #   - viridis: Purple -> Green -> Yellow - perceptually uniform
+  #   - plasma: Purple -> Pink -> Yellow - perceptually uniform
+  cmap: jet
+
+sample_arguments:
+  # Sample and save individual patches
+  samples:
+    # Top-k patches with highest attention
+    - name: "top_attention_patches"
+      sample: true
+      k: 20              # Save top 20 patches
+      mode: topk
+      seed: 1
+
+    # Uncomment to also sample random patches for comparison
+    # - name: "random_patches"
+    #   sample: true
+    #   k: 10
+    #   mode: random
+    #   seed: 42

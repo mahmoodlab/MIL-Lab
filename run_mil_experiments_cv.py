@@ -30,13 +30,13 @@ from src.builder import create_model
 # Define experiment combinations
 EXPERIMENTS = [
     # Format: (model_config, display_name)
-    ('abmil.base.gigapath.pc108-24k', 'ABMIL + GigaPath'),
-    ('abmil.base.uni_v2.pc108-24k', 'ABMIL + UNI_v2'),
-    ('abmil.base.conch_v15.pc108-24k', 'ABMIL + CONCH_v1.5'),
+    ('abmil.base.gigapath.none', 'ABMIL Non-trained + GigaPath'),
+    ('abmil.base.uni_v2.pc108-24k', 'ABMIL Trained + UNI_v2'),
+    ('abmil.base.conch_v15.pc108-24k', 'ABMIL Trained + CONCH_v1.5'),
     # Add more combinations as needed:
-    # ('transmil.base.gigapath.pc108-24k', 'TransMIL + GigaPath'),
-    # ('transmil.base.uni_v2.pc108-24k', 'TransMIL + UNI_v2'),
-    # ('clam.base.uni_v2.pc108-24k', 'CLAM + UNI_v2'),
+    # ('transmil.base.gigapath.none', 'TransMIL Non-trained + GigaPath'),
+    # ('transmil.base.uni_v2.pc108-24k', 'TransMIL Trained + UNI_v2'),
+    # ('clam.base.uni_v2.pc108-24k', 'CLAM Trained + UNI_v2'),
 ]
 
 # Data paths - Update these to match your setup
@@ -151,12 +151,16 @@ def train_and_evaluate_fold(
     torch.manual_seed(TRAIN_SEED + fold_num)  # Different seed per fold
     torch.cuda.manual_seed_all(TRAIN_SEED + fold_num)
 
-    model = create_model(
-        model_config,
-        num_classes=num_classes,
-        dropout=MODEL_DROPOUT_RATE,
-        gate=True
-    ).to(device)
+    # Conditionally pass gate parameter (only for models that support it)
+    model_kwargs = {
+        'num_classes': num_classes,
+        'dropout': MODEL_DROPOUT_RATE,
+    }
+    # DFTD doesn't use the gate parameter, so only add it for other models
+    if not model_config.lower().startswith('dftd'):
+        model_kwargs['gate'] = True
+
+    model = create_model(model_config, **model_kwargs).to(device)
 
     feature_dropout = nn.Dropout(p=FEATURE_DROPOUT_RATE).to(device)
 
@@ -262,10 +266,10 @@ def train_and_evaluate_fold(
             features, labels = features.to(device), labels.to(device)
 
             features = F.normalize(features, p=2, dim=1)
-            features = feature_dropout(features)
+            # NO dropout during testing!
 
             with torch.cuda.amp.autocast():
-                results_dict, log_dict = model(features)
+                results_dict, log_dict = model(features, loss_fn=criterion, label=labels)
                 logits = results_dict['logits']
 
             preds = torch.argmax(logits, dim=1)

@@ -1,0 +1,3 @@
+experiment_name,model_config,test_accuracy,test_balanced_accuracy,test_quadratic_kappa,best_val_kappa,final_epoch,model_path,confusion_matrix_path
+ABMIL Trained + UNI_v2,abmil.base.uni_v2.pc108-24k,0.7410207939508506,0.6732302182098104,0.8665919726456719,0.8932699550102923,10,experiment_results/run_20251119_060213/best_model_abmil_trained__uni_v2.pth,experiment_results/run_20251119_060213/confusion_matrix_abmil_trained__uni_v2.png
+DFTD Non-trained + UNI_v2,dftd.base.uni_v2.none,0.7665406427221172,0.7145938967459688,0.8631063632135627,0.874424600343892,15,experiment_results/run_20251119_060213/best_model_dftd_non-trained__uni_v2.pth,experiment_results/run_20251119_060213/confusion_matrix_dftd_non-trained__uni_v2.png

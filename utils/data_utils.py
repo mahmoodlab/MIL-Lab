@@ -313,10 +313,15 @@ def create_dataloaders(
         class_weights = 1.0 / class_counts
         sample_weights = class_weights[train_labels]
 
+        # Create generator with seed for reproducibility
+        generator = torch.Generator()
+        generator.manual_seed(seed)
+
         weighted_sampler = WeightedRandomSampler(
             weights=sample_weights,
             num_samples=len(sample_weights),
-            replacement=True
+            replacement=True,
+            generator=generator
         )
 
         train_loader = torch.utils.data.DataLoader(

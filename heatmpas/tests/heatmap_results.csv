@@ -1,0 +1,2 @@
+slide_id,num_patches,prediction,probabilities,attention_mean,attention_std,heatmap_path,pure_heatmap_path
+e28c566407ff5c15179ef801e8fbfeaf,377,0,"[0.9538053274154663, 0.04619468003511429]",0.0026525198481976986,0.020063085481524467,heatmpas/tests/e28c566407ff5c15179ef801e8fbfeaf_heatmap.png,heatmpas/tests/e28c566407ff5c15179ef801e8fbfeaf_heatmap_pure.png
