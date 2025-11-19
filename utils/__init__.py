@@ -4,6 +4,7 @@ Utilities for MIL training and visualization
 
 from .data_utils import (
     preprocess_panda_data,
+    load_panda_predefined_splits,
     PANDAH5Dataset,
     create_dataloaders
 )
@@ -20,6 +21,7 @@ from .vis_utils import (
 __all__ = [
     # Data utilities
     'preprocess_panda_data',
+    'load_panda_predefined_splits',
     'PANDAH5Dataset',
     'create_dataloaders',
     # Visualization utilities

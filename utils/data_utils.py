@@ -206,6 +206,208 @@ def preprocess_panda_data(
     return df, num_classes, group_names
 
 
+def load_panda_predefined_splits(
+    tsv_path,
+    feats_path,
+    fold_column='fold_0',
+    val_fraction=0.1,
+    grade_group=False,
+    exclude_mid_grade=False,
+    min_patches=24,
+    seed=10
+):
+    """
+    Load PANDA dataset with predefined train/test splits from TSV file
+    Optionally creates a validation set from the training set
+
+    Parameters
+    ----------
+    tsv_path : str
+        Path to TSV file with predefined splits (e.g., k=all.tsv)
+    feats_path : str
+        Path to directory containing h5 feature files
+    fold_column : str
+        Column name containing split information (default: 'fold_0')
+    val_fraction : float
+        Fraction of training data to use for validation (default: 0.1 = 10%)
+        If 0, no validation set is created
+    grade_group : bool
+        Whether to group ISUP grades into clinical categories
+    exclude_mid_grade : bool
+        Whether to exclude mid grade (ISUP 2-3) - only if grade_group=True
+    min_patches : int
+        Minimum number of patches required to include slide (default: 24)
+    seed : int
+        Random seed for validation split
+
+    Returns
+    -------
+    df : pd.DataFrame
+        DataFrame with columns: slide_id, label, isup_grade, split
+    num_classes : int
+        Number of classes
+    group_names : list
+        Names of the classes
+    """
+
+    print("="*70)
+    print("DATA LOADING (PREDEFINED SPLITS)")
+    if grade_group:
+        if exclude_mid_grade:
+            print("MODE: Clinical Grade Grouping (3 classes, mid grade excluded)")
+        else:
+            print("MODE: Clinical Grade Grouping (4 classes)")
+    else:
+        print("MODE: Original ISUP Grading (6 classes)")
+    print("="*70 + "\n")
+
+    # Set random seed
+    np.random.seed(seed)
+
+    # Step 1: Read TSV file with predefined splits
+    print("Step 1: Reading TSV file with predefined splits...")
+    df_splits = pd.read_csv(tsv_path, sep='\t')
+    print(f"  Found {len(df_splits)} slides in TSV")
+
+    # Rename columns for consistency
+    df_splits = df_splits.rename(columns={'isup_grade': 'label'})
+    df_splits['isup_grade'] = df_splits['label']
+
+    # Map fold_column values to our split names
+    df_splits['split'] = df_splits[fold_column]
+
+    # Apply grade grouping if enabled
+    if grade_group:
+        if exclude_mid_grade:
+            print(f"  Excluding mid grade (ISUP 2-3) from analysis...")
+            df_splits = df_splits[~df_splits['isup_grade'].isin([2, 3])].reset_index(drop=True)
+            print(f"  Remaining slides after exclusion: {len(df_splits)}")
+
+        def map_isup_to_group(isup_grade):
+            """Map ISUP grades to clinical groups"""
+            if isup_grade == 0:
+                return 0  # No cancer
+            elif isup_grade == 1:
+                return 1  # Low grade
+            elif isup_grade in [2, 3]:
+                return 2  # Mid grade
+            elif isup_grade in [4, 5]:
+                return 2 if exclude_mid_grade else 3  # High grade
+            else:
+                raise ValueError(f"Invalid ISUP grade: {isup_grade}")
+
+        df_splits['label'] = df_splits['isup_grade'].apply(map_isup_to_group)
+        print(f"  Applied grade grouping: ISUP -> Clinical Groups")
+
+    # Define group names
+    if grade_group:
+        if exclude_mid_grade:
+            group_names = ['Group 0 (No cancer)', 'Group 1 (Low grade)', 'Group 2 (High grade)']
+        else:
+            group_names = ['Group 0 (No cancer)', 'Group 1 (Low grade)',
+                           'Group 2 (Mid grade)', 'Group 3 (High grade)']
+    else:
+        group_names = [f'ISUP {i}' for i in range(6)]
+
+    # Step 2: Find all available feature files
+    print(f"\nStep 2: Scanning features directory...")
+    feature_files = glob(os.path.join(feats_path, '*.h5'))
+    available_slide_ids = [os.path.basename(f).replace('.h5', '') for f in feature_files]
+    print(f"  Found {len(available_slide_ids)} feature files")
+
+    # Step 3: Match TSV with available features
+    print(f"\nStep 3: Matching TSV slides with available features...")
+    df_splits['has_features'] = df_splits['slide_id'].isin(available_slide_ids)
+    df_matched = df_splits[df_splits['has_features']].drop(columns=['has_features']).reset_index(drop=True)
+    missing_count = len(df_splits) - len(df_matched)
+    print(f"  Matched: {len(df_matched)} slides")
+    print(f"  Missing features: {missing_count} slides")
+
+    # Step 3.5: Filter slides with insufficient patches
+    if min_patches > 0:
+        print(f"\nStep 3.5: Filtering slides with < {min_patches} patches...")
+
+        # Check if QC results exist
+        qc_csv_path = 'low_patch_slides.csv'
+        if os.path.exists(qc_csv_path):
+            print(f"  Using existing QC results from {qc_csv_path}")
+            df_qc = pd.read_csv(qc_csv_path)
+            slides_to_exclude = set(df_qc['slide_id'].tolist())
+            df_filtered = df_matched[~df_matched['slide_id'].isin(slides_to_exclude)].reset_index(drop=True)
+            num_excluded = len(df_matched) - len(df_filtered)
+            print(f"  Slides with >= {min_patches} patches: {len(df_filtered)}")
+            print(f"  Slides excluded (low patch count): {num_excluded}")
+        else:
+            print(f"  QC results not found, filtering on-the-fly (this may take a while)...")
+            slides_to_keep = []
+            low_patch_count = 0
+
+            for _, row in df_matched.iterrows():
+                slide_id = row['slide_id']
+                feat_path = os.path.join(feats_path, slide_id + '.h5')
+
+                try:
+                    with h5py.File(feat_path, 'r') as f:
+                        features = f['features'][:]
+                        # Handle both 2D (new Trident) and 3D (old) formats
+                        if len(features.shape) == 3:
+                            num_patches = features.shape[1]  # (1, num_patches, dim)
+                        else:
+                            num_patches = features.shape[0]  # (num_patches, dim)
+
+                        if num_patches >= min_patches:
+                            slides_to_keep.append(slide_id)
+                        else:
+                            low_patch_count += 1
+                except Exception as e:
+                    print(f"  [WARNING] Failed to read {slide_id}: {e}")
+                    low_patch_count += 1
+
+            df_filtered = df_matched[df_matched['slide_id'].isin(slides_to_keep)].reset_index(drop=True)
+            print(f"  Slides with >= {min_patches} patches: {len(df_filtered)}")
+            print(f"  Slides excluded (low patch count): {low_patch_count}")
+    else:
+        df_filtered = df_matched
+
+    # Step 4: Optionally create validation split from training data
+    if val_fraction > 0:
+        print(f"\nStep 4: Creating validation set ({val_fraction*100:.0f}% of training data)...")
+
+        train_df = df_filtered[df_filtered['split'] == 'train'].reset_index(drop=True)
+        test_df = df_filtered[df_filtered['split'] == 'test'].reset_index(drop=True)
+
+        # Split training into train and val
+        from sklearn.model_selection import train_test_split
+        train_df_new, val_df = train_test_split(
+            train_df, test_size=val_fraction, stratify=train_df['label'], random_state=seed
+        )
+
+        train_df_new['split'] = 'train'
+        val_df['split'] = 'val'
+
+        df = pd.concat([train_df_new, val_df, test_df], ignore_index=True)
+    else:
+        print(f"\nStep 4: No validation set created (using train/test only)...")
+        df = df_filtered
+
+    # Print summary
+    print(f"\n{'='*70}")
+    print("SPLIT SUMMARY")
+    print(f"{'='*70}")
+    print(f"Total slides: {len(df)}\n")
+
+    for split_name in ['train', 'val', 'test']:
+        split_df = df[df['split'] == split_name]
+        if len(split_df) > 0:
+            print(f"  {split_name.capitalize():5s}: {len(split_df)} ({len(split_df)/len(df)*100:.1f}%)")
+
+    num_classes = len(df['label'].unique())
+    print(f"\nNumber of classes: {num_classes}")
+    print(f"{'='*70}\n")
+
+    return df, num_classes, group_names
+
+
 class PANDAH5Dataset(Dataset):
     """
     Universal dataset for PANDA with UNI v2 features
