@@ -1,0 +1,25 @@
+{
+  "_comment": "Fast configuration with less overlap for quick previews",
+
+  "checkpoint": "../best_model_abmil_feather_panda.pth",
+  "slide": "/media/nadim/Data/prostate-cancer-grade-assessment/train_images/0a6e7a0cfe6a3203b4cb28d6ff6daa6a.tiff",
+  "output": "~/Documents/Move_to_Google_Drive/VA_JC_12_05_2025",
+
+  "model_name": "abmil.base.uni_v2.pc108-24k",
+  "num_classes": 6,
+
+  "feature_extractor": "uni_v2",
+
+  "overlap": 0.70,
+  "patch_size": 256,
+
+  "vis_level": 1,
+
+  "batch_size_extract": 64,
+  "batch_size_infer": 1024,
+
+  "cmap": "jet",
+  "alpha": 0.5,
+
+  "save_coords": false
+}

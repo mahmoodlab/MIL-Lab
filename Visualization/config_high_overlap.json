@@ -1,0 +1,26 @@
+{
+  "_comment": "High overlap (95%) configuration for ultra-smooth heatmaps",
+  "_output_info": "Output directory - filename auto-generated with config params",
+
+  "checkpoint": "/path/to/model_checkpoint.pt",
+  "slide": "/path/to/slide.tiff",
+  "output": "/path/to/output/",
+
+  "model_name": "abmil.base.uni_v2.pc108-24k",
+  "num_classes": 2,
+
+  "feature_extractor": "auto",
+
+  "overlap": 0.95,
+  "patch_size": 256,
+
+  "vis_level": 0,
+
+  "batch_size_extract": 32,
+  "batch_size_infer": 512,
+
+  "cmap": "jet",
+  "alpha": 0.5,
+
+  "save_coords": true
+}

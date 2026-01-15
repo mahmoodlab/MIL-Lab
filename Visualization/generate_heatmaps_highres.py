@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-High-Resolution Heatmap Generation with Overlapping Patches
+High-Resolution Heatmap Generation with Overlapping Patches (JSON Config Version)
 
 This script generates dense, high-resolution heatmaps by:
 1. Creating a dense grid of overlapping patches (e.g., 90-95% overlap)
@@ -9,28 +9,73 @@ This script generates dense, high-resolution heatmaps by:
 4. Creating a high-resolution heatmap at 20x (or any resolution)
 
 Usage:
-    python generate_heatmaps_highres.py \
-        --checkpoint path/to/model.pt \
-        --slide path/to/slide.tiff \
-        --output heatmap_highres.tiff \
-        --overlap 0.90 \
-        --vis_level 0
+    python generate_heatmaps_highres.py --config config.json
+
+Or specify individual config file:
+    python generate_heatmaps_highres.py --config path/to/my_config.json
 """
 
 import argparse
 import os
+import json
 import torch
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
 from PIL import Image
 import h5py
+import sys
+
+# Add parent directory to path to import src modules
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.visualization import WholeSlideImage, draw_heatmap
 from src.builder import create_model
 from utils.file_utils import save_hdf5
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+def load_config(config_path):
+    """
+    Load configuration from JSON file
+
+    Args:
+        config_path: Path to JSON config file
+
+    Returns:
+        dict: Configuration dictionary
+    """
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+
+    print(f"Loaded configuration from: {config_path}")
+    print(f"Config: {json.dumps(config, indent=2)}")
+    return config
+
+
+def validate_config(config):
+    """
+    Validate configuration has required fields
+
+    Args:
+        config: Configuration dictionary
+
+    Raises:
+        ValueError: If required fields are missing
+    """
+    required_fields = ['checkpoint', 'slide', 'output']
+    missing = [f for f in required_fields if f not in config]
+
+    if missing:
+        raise ValueError(f"Missing required config fields: {missing}")
+
+    # Check if files exist
+    if not os.path.exists(config['checkpoint']):
+        raise FileNotFoundError(f"Checkpoint not found: {config['checkpoint']}")
+
+    if not os.path.exists(config['slide']):
+        raise FileNotFoundError(f"Slide not found: {config['slide']}")
 
 
 def detect_feature_dim_from_checkpoint(checkpoint_path):
@@ -314,38 +359,122 @@ def get_dense_attention_scores(model, features, batch_size=512):
     return attention
 
 
-def generate_highres_heatmap(
-    slide_path,
-    model,
-    feature_extractor,
-    transform,
-    output_path,
-    overlap=0.90,
-    patch_size=256,
-    vis_level=0,
-    batch_size_extract=32,
-    batch_size_infer=512,
-    cmap='jet',
-    alpha=0.5,
-    save_coords=True
-):
+def generate_output_path(slide_path, output_config, model_name, feature_extractor,
+                         overlap, patch_size, vis_level, cmap, alpha):
     """
-    Generate high-resolution heatmap with dense overlapping patches
+    Generate output path based on slide name and configuration parameters
 
     Args:
-        slide_path: Path to WSI
-        model: Trained MIL model
-        feature_extractor: Feature extraction model
-        output_path: Output path for heatmap
-        overlap: Overlap ratio (0.9 = 90% overlap, step_size = 10% of patch_size)
-        patch_size: Patch size
-        vis_level: Visualization level (0 = full resolution)
-        batch_size_extract: Batch size for feature extraction
-        batch_size_infer: Batch size for attention inference
-        cmap: Colormap
-        alpha: Transparency
-        save_coords: Whether to save coordinates and attention scores
+        slide_path: Path to input slide
+        output_config: Output path from config (can be directory or full path)
+        model_name: Model name (e.g., 'abmil.base.uni_v2.pc108-24k')
+        feature_extractor: Feature extractor name (e.g., 'uni_v2', 'auto')
+        overlap: Overlap ratio (e.g., 0.90)
+        patch_size: Patch size in pixels
+        vis_level: Visualization level
+        cmap: Colormap name
+        alpha: Transparency value
+
+    Returns:
+        str: Full output path with descriptive filename
     """
+    slide_name = Path(slide_path).stem
+
+    # Check if output_config is a directory or a file path
+    output_path = Path(output_config)
+
+    # If it's an existing directory or ends with /, treat as directory
+    if output_path.is_dir() or str(output_config).endswith('/'):
+        output_dir = output_path
+        # Generate descriptive filename with all config parameters
+        overlap_pct = int(overlap * 100)
+
+        # Shorten model name for filename (take first and last parts)
+        model_short = model_name.split('.')[-1] if '.' in model_name else model_name
+
+        # Build filename with all relevant parameters
+        filename = (f"{slide_name}_"
+                   f"{model_short}_"
+                   f"{feature_extractor}_"
+                   f"patch{patch_size}_"
+                   f"overlap{overlap_pct}_"
+                   f"level{vis_level}_"
+                   f"{cmap}_"
+                   f"alpha{int(alpha*100)}.tiff")
+
+        final_path = output_dir / filename
+    else:
+        # Check if it has a valid extension
+        if output_path.suffix in ['.tiff', '.tif', '.png', '.jpg', '.jpeg']:
+            # Use as-is if it has extension
+            final_path = output_path
+        elif output_path.suffix == '':
+            # No extension - treat as directory
+            output_dir = output_path
+            output_dir.mkdir(parents=True, exist_ok=True)
+            overlap_pct = int(overlap * 100)
+
+            # Shorten model name for filename
+            model_short = model_name.split('.')[-1] if '.' in model_name else model_name
+
+            # Build filename with all relevant parameters
+            filename = (f"{slide_name}_"
+                       f"{model_short}_"
+                       f"{feature_extractor}_"
+                       f"patch{patch_size}_"
+                       f"overlap{overlap_pct}_"
+                       f"level{vis_level}_"
+                       f"{cmap}_"
+                       f"alpha{int(alpha*100)}.tiff")
+
+            final_path = output_dir / filename
+        else:
+            # Unknown extension, add .tiff
+            final_path = Path(str(output_path) + '.tiff')
+
+    # Create parent directory if it doesn't exist
+    final_path.parent.mkdir(parents=True, exist_ok=True)
+
+    return str(final_path)
+
+
+def generate_highres_heatmap(config):
+    """
+    Generate high-resolution heatmap with dense overlapping patches using config dict
+
+    Args:
+        config: Configuration dictionary with keys:
+            - checkpoint: Path to model checkpoint
+            - slide: Path to WSI file
+            - output: Output directory or file path (auto-generates descriptive filename if directory)
+            - model_name: Model name (default: 'abmil.base.uni_v2.pc108-24k')
+            - num_classes: Number of classes (default: 2)
+            - feature_extractor: Feature extractor ('auto', 'uni_v1', 'uni_v2', etc.)
+            - overlap: Overlap ratio (default: 0.90)
+            - patch_size: Patch size (default: 256)
+            - vis_level: Visualization level (default: 0)
+            - batch_size_extract: Batch size for extraction (default: 32)
+            - batch_size_infer: Batch size for inference (default: 512)
+            - cmap: Colormap (default: 'jet')
+            - alpha: Transparency (default: 0.5)
+            - save_coords: Save coordinates (default: true)
+    """
+    # Extract config with defaults
+    checkpoint = config['checkpoint']
+    slide_path = config['slide']
+    output_config = config['output']
+    model_name = config.get('model_name', 'abmil.base.uni_v2.pc108-24k')
+    num_classes = config.get('num_classes', 2)
+    feature_extractor_name = config.get('feature_extractor', 'auto')
+    overlap = config.get('overlap', 0.90)
+    patch_size = config.get('patch_size', 256)
+    vis_level = config.get('vis_level', 0)
+    batch_size_extract = config.get('batch_size_extract', 32)
+    batch_size_infer = config.get('batch_size_infer', 512)
+    cmap = config.get('cmap', 'jet')
+    alpha = config.get('alpha', 0.5)
+    save_coords = config.get('save_coords', True)
+
     print(f"\n{'='*70}")
     print(f"HIGH-RESOLUTION HEATMAP GENERATION")
     print(f"{'='*70}")
@@ -357,6 +486,44 @@ def generate_highres_heatmap(
     # Calculate step size
     step_size = int(patch_size * (1 - overlap))
     print(f"Step size: {step_size}px")
+
+    # Load models
+    print(f"\nLoading models...")
+
+    # Auto-detect feature extractor if requested
+    if feature_extractor_name == 'auto':
+        print("Auto-detecting feature extractor from checkpoint...")
+        feature_dim = detect_feature_dim_from_checkpoint(checkpoint)
+
+        if feature_dim in FEATURE_DIM_TO_EXTRACTOR:
+            extractor_name = FEATURE_DIM_TO_EXTRACTOR[feature_dim]
+            print(f"  → Recommended extractor for {feature_dim}-dim features: {extractor_name}")
+        else:
+            print(f"  ⚠ Warning: Unusual feature dimension {feature_dim}")
+            print(f"  → Falling back to uni_v2 (may not match!)")
+            extractor_name = 'uni_v2'
+    else:
+        extractor_name = feature_extractor_name
+        print(f"Using specified feature extractor: {extractor_name}")
+
+    # Generate output path with descriptive filename (after extractor is determined)
+    output_path = generate_output_path(
+        slide_path, output_config, model_name, extractor_name,
+        overlap, patch_size, vis_level, cmap, alpha
+    )
+    print(f"Output will be saved to: {output_path}")
+
+    # Load MIL model
+    model = create_model(
+        model_name=model_name,
+        num_classes=num_classes,
+        checkpoint_path=checkpoint
+    ).to(device)
+    print(f"✓ MIL model loaded: {model.__class__.__name__}")
+
+    # Load feature extractor
+    feature_extractor, transform = load_feature_extractor(extractor_name)
+    feature_extractor = feature_extractor.to(device)
 
     # Load slide
     print(f"\n1. Loading slide...")
@@ -438,100 +605,21 @@ def generate_highres_heatmap(
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Generate high-resolution heatmaps')
+    parser = argparse.ArgumentParser(
+        description='Generate high-resolution heatmaps using JSON configuration'
+    )
 
-    # Required
-    parser.add_argument('--checkpoint', type=str, required=True,
-                       help='Path to model checkpoint')
-    parser.add_argument('--slide', type=str, required=True,
-                       help='Path to WSI file')
-    parser.add_argument('--output', type=str, required=True,
-                       help='Output heatmap path (.tiff or .png)')
-
-    # Model config
-    parser.add_argument('--model_name', type=str, default='abmil.base.uni_v2.pc108-24k',
-                       help='Model name')
-    parser.add_argument('--num_classes', type=int, default=2,
-                       help='Number of classes')
-    parser.add_argument('--feature_extractor', type=str, default='auto',
-                       help='Feature extractor name: auto (detect from checkpoint), uni_v1, uni_v2, resnet50 (default: auto)')
-
-    # Dense sampling
-    parser.add_argument('--overlap', type=float, default=0.90,
-                       help='Overlap ratio: 0.9=90%%, 0.95=95%% (default: 0.90)')
-    parser.add_argument('--patch_size', type=int, default=256,
-                       help='Patch size (default: 256)')
-
-    # Visualization
-    parser.add_argument('--vis_level', type=int, default=0,
-                       help='Visualization level: 0=full res, 1=2x downsample, etc. (default: 0)')
-    parser.add_argument('--cmap', type=str, default='jet',
-                       help='Colormap (default: jet)')
-    parser.add_argument('--alpha', type=float, default=0.5,
-                       help='Transparency (default: 0.5)')
-
-    # Performance
-    parser.add_argument('--batch_size_extract', type=int, default=32,
-                       help='Batch size for feature extraction (default: 32)')
-    parser.add_argument('--batch_size_infer', type=int, default=512,
-                       help='Batch size for attention inference (default: 512)')
-
-    # Options
-    parser.add_argument('--no_save_coords', action='store_true',
-                       help='Do not save coordinates and attention scores')
+    parser.add_argument('--config', type=str, required=True,
+                       help='Path to JSON configuration file')
 
     args = parser.parse_args()
 
-    # Load models
-    print("Loading models...")
-    print()
+    # Load and validate config
+    config = load_config(args.config)
+    validate_config(config)
 
-    # Auto-detect feature extractor if requested
-    if args.feature_extractor == 'auto':
-        print("Auto-detecting feature extractor from checkpoint...")
-        feature_dim = detect_feature_dim_from_checkpoint(args.checkpoint)
-
-        if feature_dim in FEATURE_DIM_TO_EXTRACTOR:
-            extractor_name = FEATURE_DIM_TO_EXTRACTOR[feature_dim]
-            print(f"  → Recommended extractor for {feature_dim}-dim features: {extractor_name}")
-        else:
-            print(f"  ⚠ Warning: Unusual feature dimension {feature_dim}")
-            print(f"  → Falling back to uni_v2 (may not match!)")
-            extractor_name = 'uni_v2'
-    else:
-        extractor_name = args.feature_extractor
-        print(f"Using specified feature extractor: {extractor_name}")
-
-    # Load MIL model
-    model = create_model(
-        model_name=args.model_name,
-        num_classes=args.num_classes,
-        checkpoint_path=args.checkpoint
-    ).to(device)
-    print(f"✓ MIL model loaded: {model.__class__.__name__}")
-    print()
-
-    # Load feature extractor
-    feature_extractor, transform = load_feature_extractor(extractor_name)
-    feature_extractor = feature_extractor.to(device)
-    print()
-
-    # Generate high-res heatmap
-    generate_highres_heatmap(
-        slide_path=args.slide,
-        model=model,
-        feature_extractor=feature_extractor,
-        transform=transform,
-        output_path=args.output,
-        overlap=args.overlap,
-        patch_size=args.patch_size,
-        vis_level=args.vis_level,
-        batch_size_extract=args.batch_size_extract,
-        batch_size_infer=args.batch_size_infer,
-        cmap=args.cmap,
-        alpha=args.alpha,
-        save_coords=not args.no_save_coords
-    )
+    # Generate heatmap
+    generate_highres_heatmap(config)
 
 
 if __name__ == '__main__':

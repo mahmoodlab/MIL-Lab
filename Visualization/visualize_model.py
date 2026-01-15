@@ -4,6 +4,12 @@ Standalone visualization script for MIL models
 Works with both CLAM and ABMIL models
 """
 
+import sys
+from pathlib import Path
+
+# Add parent directory to path to import src modules
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import argparse
 import torch
 import torch.nn as nn

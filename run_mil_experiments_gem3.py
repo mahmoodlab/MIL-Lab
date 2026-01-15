@@ -52,7 +52,8 @@ EXCLUDE_MID_GRADE = False
 SEED = 10
 TRAIN_SEED = 42
 
-# Training settings per paper [cite: 849, 850, 852]
+# Training settings per paper [cite: 849
+# 850, 852]
 NUM_EPOCHS = 20
 BATCH_SIZE = 1
 LEARNING_RATE = 1e-4

@@ -9,12 +9,17 @@ Usage:
         --slide path/to/slide.tiff
 """
 
+import sys
+from pathlib import Path
+
+# Add grandparent directory to path to import src modules
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
 import argparse
 import h5py
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from pathlib import Path
 
 from src.builder import create_model
 

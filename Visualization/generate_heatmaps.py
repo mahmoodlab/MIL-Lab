@@ -13,6 +13,12 @@ Usage:
         --output_dir heatmaps/output/
 """
 
+import sys
+from pathlib import Path
+
+# Add parent directory to path to import src modules
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import argparse
 import os
 import h5py

@@ -1,0 +1,26 @@
+{
+  "_comment": "Example configuration for high-resolution heatmap generation",
+  "_output_info": "Output should be a directory path (ending with /). Filename is auto-generated from slide name and config parameters: {slide}_{model}_{encoder}_patch{size}_overlap{pct}_level{vis}_{cmap}_alpha{pct}.tiff",
+
+  "checkpoint": "/path/to/model_checkpoint.pt",
+  "slide": "/path/to/slide.tiff",
+  "output": "/path/to/output/",
+
+  "model_name": "abmil.base.uni_v2.pc108-24k",
+  "num_classes": 2,
+
+  "feature_extractor": "auto",
+
+  "overlap": 0.90,
+  "patch_size": 256,
+
+  "vis_level": 0,
+
+  "batch_size_extract": 32,
+  "batch_size_infer": 512,
+
+  "cmap": "jet",
+  "alpha": 0.5,
+
+  "save_coords": true
+}

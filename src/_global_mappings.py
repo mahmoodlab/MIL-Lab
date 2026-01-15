@@ -19,7 +19,8 @@ ENCODER_DIM_MAPPING : dict[str, int] = {
     'phikon2': 1024,
     'hoptimus': 1536,
     'hoptimus1': 1536,
-    'musk': 1024
+    'musk': 1024,
+    'dino_v3' : 1280
 }
 
 MODEL_ENTRYPOINTS = {

@@ -1,0 +1,26 @@
+{
+  "_comment": "Fast configuration with less overlap for quick previews",
+  "_output_info": "Output directory - filename auto-generated from slide name and all config parameters",
+
+  "checkpoint": "/path/to/model_checkpoint.pt",
+  "slide": "/path/to/slide.tiff",
+  "output": "/path/to/output/",
+
+  "model_name": "abmil.base.uni_v2.pc108-24k",
+  "num_classes": 2,
+
+  "feature_extractor": "auto",
+
+  "overlap": 0.70,
+  "patch_size": 256,
+
+  "vis_level": 1,
+
+  "batch_size_extract": 64,
+  "batch_size_infer": 1024,
+
+  "cmap": "jet",
+  "alpha": 0.5,
+
+  "save_coords": false
+}

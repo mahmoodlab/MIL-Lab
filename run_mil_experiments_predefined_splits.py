@@ -28,8 +28,9 @@ from src.builder import create_model
 # Define experiment combinations
 EXPERIMENTS = [
     # Format: (model_config, display_name)
-    ('abmil.base.uni_v2.pc108-24k', 'ABMIL Trained + UNI_v2'),
-    ('dftd.base.uni_v2.none', 'DFTD Non-trained + UNI_v2'),
+    #('abmil.base.uni_v2.pc108-24k', 'ABMIL Trained + UNI_v2'),
+    #('dftd.base.uni_v2.none', 'DFTD Non-trained + UNI_v2'),
+    ('abmil.base.dino_v3.none','ABMIL Non-trained + Dinov3')
 ]
 
 # Data paths - Update these to match your setup
@@ -38,9 +39,10 @@ WSI_DIR = '/media/nadim/Data/prostate-cancer-grade-assessment/train_images'
 
 # Feature paths for each encoder
 FEATURE_PATHS = {
-    'gigapath': '/media/nadim/Data/prostate-cancer-grade-assessment/trident_processedqc/20x_256px_0px_overlap/features_gigapath/',
-    'uni_v2': '/media/nadim/Data/prostate-cancer-grade-assessment/trident_processedqc/20x_256px_0px_overlap/features_uni_v2/',
-    'conch_v15': '/media/nadim/Data/prostate-cancer-grade-assessment/trident_processedqc/20x_256px_0px_overlap/features_conch_v15/',
+    #'gigapath': '/media/nadim/Data/prostate-cancer-grade-assessment/trident_processedqc/20x_256px_0px_overlap/features_gigapath/',
+    #'uni_v2': '/media/nadim/Data/prostate-cancer-grade-assessment/trident_processedqc/20x_256px_0px_overlap/features_uni_v2/',
+    #'conch_v15': '/media/nadim/Data/prostate-cancer-grade-assessment/trident_processedqc/20x_256px_0px_overlap/features_conch_v15/',
+    'dino_v3' :'/media/nadim/Data/prostate-cancer-grade-assessment/trident_processedqc/20x_256px_0px_overlap/features_dinov3_huge_local/'
 }
 
 # Data settings
@@ -58,7 +60,7 @@ LEARNING_RATE = 1e-4
 WEIGHT_DECAY = 1e-5
 
 # Early Stopping & Dropout
-EARLY_STOPPING_PATIENCE = 5
+EARLY_STOPPING_PATIENCE = 100
 MIN_EPOCHS = 10
 FEATURE_DROPOUT_RATE = 0.1  # [cite: 852]
 MODEL_DROPOUT_RATE = 0.25   # [cite: 852]
