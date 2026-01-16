@@ -23,6 +23,9 @@ dependencies = {file = "requirements.txt"}
 [tool.setuptools.packages.find]
 exclude = ["dev*", "temp*", "docs", "dist*", "scripts*", "tests*", "checkpoints*"]
 
+[tool.setuptools.package-data]
+src = ["model_configs/**/*.yaml"]
+
 [tool.wheel]
 exclude = ["dev*", "temp*", "docs", "dist*", "scripts*", "tests*", "checkpoints*"]
 
