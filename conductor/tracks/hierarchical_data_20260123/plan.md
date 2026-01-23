@@ -1,8 +1,8 @@
 # Implementation Plan - Hierarchical Data Loading
 
 ## Phase 1: Analysis and Design
-- [ ] Task: Review existing `data_loading/dataset.py` and `data_loading/feature_loader.py` for current slide/patient assumptions.
-- [ ] Task: Define the data schema (CSV or JSON) that captures patient-slide-core hierarchies.
+- [x] Task: Review existing `data_loading/dataset.py` and `data_loading/feature_loader.py` for current slide/patient assumptions.
+- [x] Task: Define the data schema (CSV or JSON) that captures patient-slide-core hierarchies.
 - [ ] Task: Conductor - User Manual Verification 'Phase 1: Analysis and Design' (Protocol in workflow.md)
 
 ## Phase 2: Core Implementation
