@@ -1,2 +1,0 @@
-experiment_name,model_config,test_accuracy,test_balanced_accuracy,test_quadratic_kappa,best_val_kappa,final_epoch,model_path,confusion_matrix_path
-DFTD Non-trained + UNI_v2,dftd.base.uni_v2.none,0.9263420724094882,0.9247545623864478,0.9126022913256956,0.9265689681652421,10,experiment_results/run_20251118_171910/best_model_dftd_non-trained__uni_v2.pth,experiment_results/run_20251118_171910/confusion_matrix_dftd_non-trained__uni_v2.png

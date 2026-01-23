@@ -321,7 +321,7 @@ class MILDataset:
             'test': self.get_subset(test_ids),
         }
 
-    def concat_by(self, column: str) -> 'GroupedMILDataset':
+    def concat_by(self, column: str, label_voting: str = 'max') -> 'GroupedMILDataset':
         """
         Group samples by column and concatenate features.
 
@@ -330,21 +330,25 @@ class MILDataset:
 
         Args:
             column: Column to group by (e.g., 'case_id')
+            label_voting: How to determine group label when items have different labels.
+                - 'max': Use maximum label (MIL convention: positive if any positive)
+                - 'maj': Use majority vote (mode)
+                - 'first': Use first item's label (assumes consistent labels)
 
         Returns:
             GroupedMILDataset with concatenated features
 
         Example:
             # Patient-level dataset with concatenated slides
-            patient_dataset = slide_dataset.concat_by('case_id')
+            patient_dataset = slide_dataset.concat_by('case_id', label_voting='max')
         """
         if column not in self.df.columns:
             raise ValueError(f"Column '{column}' not in dataset. "
                            f"Available: {list(self.df.columns)}")
 
-        return GroupedMILDataset(self, group_column=column)
+        return GroupedMILDataset(self, group_column=column, label_voting=label_voting)
 
-    def group_by(self, column: str) -> 'HierarchicalMILDataset':
+    def group_by(self, column: str, label_voting: str = 'max') -> 'HierarchicalMILDataset':
         """
         Group samples by column, preserving structure for hierarchical MIL.
 
@@ -353,13 +357,17 @@ class MILDataset:
 
         Args:
             column: Column to group by (e.g., 'case_id')
+            label_voting: How to determine group label when items have different labels.
+                - 'max': Use maximum label (MIL convention: positive if any positive)
+                - 'maj': Use majority vote (mode)
+                - 'first': Use first item's label (assumes consistent labels)
 
         Returns:
             HierarchicalMILDataset with preserved structure
 
         Example:
             # Patient-level with slide structure preserved
-            patient_dataset = slide_dataset.group_by('case_id')
+            patient_dataset = slide_dataset.group_by('case_id', label_voting='max')
 
             # Each sample has features as list of tensors
             patient = patient_dataset[0]
@@ -370,7 +378,7 @@ class MILDataset:
             raise ValueError(f"Column '{column}' not in dataset. "
                            f"Available: {list(self.df.columns)}")
 
-        return HierarchicalMILDataset(self, group_column=column)
+        return HierarchicalMILDataset(self, group_column=column, label_voting=label_voting)
 
 
 # =============================================================================
@@ -389,17 +397,19 @@ class GroupedMILDataset:
     - Slide boundaries are arbitrary (e.g., same tissue split into files)
     - You don't need slide-level attention
 
-    Created via: MILDataset.concat_by('case_id')
+    Created via: MILDataset.concat_by('case_id', label_voting='max')
     """
 
-    def __init__(self, base_dataset: MILDataset, group_column: str):
+    def __init__(self, base_dataset: MILDataset, group_column: str, label_voting: str = 'max'):
         """
         Args:
             base_dataset: The slide-level MILDataset
             group_column: Column to group by (e.g., 'case_id')
+            label_voting: How to determine group label ('max', 'maj', 'first')
         """
         self.base = base_dataset
         self.group_column = group_column
+        self.label_voting = label_voting
         self.features_dir = base_dataset.features_dir
 
         # Build grouped dataframe
@@ -411,18 +421,42 @@ class GroupedMILDataset:
         self.embed_dim = base_dataset.embed_dim
         self.num_classes = self.group_df.label.nunique()
 
-        print(f"\nGrouped by '{group_column}':")
+        print(f"\nGrouped by '{group_column}' (label_voting='{label_voting}'):")
         print(f"  Total items: {len(self.item_df)}")
         print(f"  Total groups: {len(self.group_df)}")
         print(f"  Avg items/group: {len(self.item_df) / len(self.group_df):.2f}")
 
     def _build_group_df(self) -> pd.DataFrame:
         """Aggregate items into groups."""
+        # Determine label aggregation function based on voting method
+        if self.label_voting == 'max':
+            label_agg = 'max'
+        elif self.label_voting == 'maj':
+            # Mode (majority vote) - take first mode if tie
+            label_agg = lambda x: x.mode().iloc[0] if len(x.mode()) > 0 else x.iloc[0]
+        elif self.label_voting == 'first':
+            label_agg = 'first'
+        else:
+            raise ValueError(f"Unknown label_voting: {self.label_voting}. "
+                           f"Choose from: 'max', 'maj', 'first'")
+
         grouped = self.item_df.groupby(self.group_column).agg({
-            'label': 'first',
+            'label': label_agg,
             'slide_id': list,
             'h5_path': list,
         }).reset_index()
+
+        # Check for label conflicts and warn
+        conflicts = self._check_label_conflicts()
+        if conflicts:
+            print(f"  WARNING: {len(conflicts)} groups have inconsistent labels!")
+            if len(conflicts) <= 5:
+                for group_id, labels in conflicts.items():
+                    print(f"    {group_id}: {labels}")
+            else:
+                print(f"    (showing first 5)")
+                for group_id, labels in list(conflicts.items())[:5]:
+                    print(f"    {group_id}: {labels}")
 
         # Preserve split column if exists
         if 'split' in self.item_df.columns:
@@ -432,6 +466,15 @@ class GroupedMILDataset:
         grouped['num_items'] = grouped['slide_id'].apply(len)
 
         return grouped
+
+    def _check_label_conflicts(self) -> Dict[str, List]:
+        """Check for groups with inconsistent labels."""
+        conflicts = {}
+        for group_id, group_df in self.item_df.groupby(self.group_column):
+            unique_labels = group_df['label'].unique()
+            if len(unique_labels) > 1:
+                conflicts[group_id] = unique_labels.tolist()
+        return conflicts
 
     def __len__(self) -> int:
         return len(self.group_df)
@@ -479,6 +522,7 @@ class GroupedMILDataset:
         subset = GroupedMILDataset.__new__(GroupedMILDataset)
         subset.base = self.base
         subset.group_column = self.group_column
+        subset.label_voting = self.label_voting
         subset.features_dir = self.features_dir
         subset.item_df = self.item_df[self.item_df[self.group_column].isin(group_ids)].reset_index(drop=True)
         subset.group_df = self.group_df[self.group_df[self.group_column].isin(group_ids)].reset_index(drop=True)
@@ -569,7 +613,7 @@ class HierarchicalMILDataset:
     - You want the model to learn "which patches matter in each slide"
       AND "which slides matter for the patient"
 
-    Created via: MILDataset.group_by('case_id')
+    Created via: MILDataset.group_by('case_id', label_voting='max')
 
     Example model architecture:
         class HierarchicalMIL(nn.Module):
@@ -588,14 +632,16 @@ class HierarchicalMILDataset:
           hierarchical attention.
     """
 
-    def __init__(self, base_dataset: MILDataset, group_column: str):
+    def __init__(self, base_dataset: MILDataset, group_column: str, label_voting: str = 'max'):
         """
         Args:
             base_dataset: The slide-level MILDataset
             group_column: Column to group by (e.g., 'case_id')
+            label_voting: How to determine group label ('max', 'maj', 'first')
         """
         self.base = base_dataset
         self.group_column = group_column
+        self.label_voting = label_voting
         self.features_dir = base_dataset.features_dir
 
         # Build grouped dataframe
@@ -607,18 +653,41 @@ class HierarchicalMILDataset:
         self.embed_dim = base_dataset.embed_dim
         self.num_classes = self.group_df.label.nunique()
 
-        print(f"\nHierarchical grouping by '{group_column}':")
+        print(f"\nHierarchical grouping by '{group_column}' (label_voting='{label_voting}'):")
         print(f"  Total items: {len(self.item_df)}")
         print(f"  Total groups: {len(self.group_df)}")
         print(f"  Avg items/group: {len(self.item_df) / len(self.group_df):.2f}")
 
     def _build_group_df(self) -> pd.DataFrame:
         """Aggregate items into groups."""
+        # Determine label aggregation function based on voting method
+        if self.label_voting == 'max':
+            label_agg = 'max'
+        elif self.label_voting == 'maj':
+            label_agg = lambda x: x.mode().iloc[0] if len(x.mode()) > 0 else x.iloc[0]
+        elif self.label_voting == 'first':
+            label_agg = 'first'
+        else:
+            raise ValueError(f"Unknown label_voting: {self.label_voting}. "
+                           f"Choose from: 'max', 'maj', 'first'")
+
         grouped = self.item_df.groupby(self.group_column).agg({
-            'label': 'first',
+            'label': label_agg,
             'slide_id': list,
             'h5_path': list,
         }).reset_index()
+
+        # Check for label conflicts and warn
+        conflicts = self._check_label_conflicts()
+        if conflicts:
+            print(f"  WARNING: {len(conflicts)} groups have inconsistent labels!")
+            if len(conflicts) <= 5:
+                for group_id, labels in conflicts.items():
+                    print(f"    {group_id}: {labels}")
+            else:
+                print(f"    (showing first 5)")
+                for group_id, labels in list(conflicts.items())[:5]:
+                    print(f"    {group_id}: {labels}")
 
         if 'split' in self.item_df.columns:
             split_map = self.item_df.groupby(self.group_column)['split'].first()
@@ -630,6 +699,15 @@ class HierarchicalMILDataset:
 
     def __len__(self) -> int:
         return len(self.group_df)
+
+    def _check_label_conflicts(self) -> Dict[str, List]:
+        """Check for groups with inconsistent labels."""
+        conflicts = {}
+        for group_id, group_df in self.item_df.groupby(self.group_column):
+            unique_labels = group_df['label'].unique()
+            if len(unique_labels) > 1:
+                conflicts[group_id] = unique_labels.tolist()
+        return conflicts
 
     def __iter__(self):
         for _, row in self.group_df.iterrows():
@@ -671,6 +749,7 @@ class HierarchicalMILDataset:
         subset = HierarchicalMILDataset.__new__(HierarchicalMILDataset)
         subset.base = self.base
         subset.group_column = self.group_column
+        subset.label_voting = self.label_voting
         subset.features_dir = self.features_dir
         subset.item_df = self.item_df[self.item_df[self.group_column].isin(group_ids)].reset_index(drop=True)
         subset.group_df = self.group_df[self.group_df[self.group_column].isin(group_ids)].reset_index(drop=True)
