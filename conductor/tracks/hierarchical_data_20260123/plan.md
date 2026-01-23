@@ -14,7 +14,7 @@
     - [x] Implement robust batching logic. ac2e1cf
 - [x] Task: Conductor - User Manual Verification 'Phase 2: Core Implementation' (Protocol in workflow.md) ac2e1cf
 
-## Phase 3: Integration and Benchmarking
-- [ ] Task: Integrate the new loader with `train_mil.py` or a dedicated experiment runner.
-- [ ] Task: Verify that attention heatmaps can still be mapped back to individual slides/cores.
-- [ ] Task: Conductor - User Manual Verification 'Phase 3: Integration and Benchmarking' (Protocol in workflow.md)
+## Phase 3: Integration and Benchmarking [checkpoint: 5c7ba38]
+- [x] Task: Integrate the new loader with `train_mil.py` or a dedicated experiment runner. 5c7ba38
+- [x] Task: Verify that attention heatmaps can still be mapped back to individual slides/cores. 5c7ba38
+- [x] Task: Conductor - User Manual Verification 'Phase 3: Integration and Benchmarking' (Protocol in workflow.md) 5c7ba38
