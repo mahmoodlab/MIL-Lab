@@ -17,7 +17,8 @@ The user is building a library for Multiple Instance Learning (MIL) models in co
 - **Flexible Model Creation:** A `create_model()` interface supporting various patch encoders.
 - **Encoder Integration:** Built-in support for patch foundation models such as UNI, CONCH, and GigaPath.
 - **Benchmarking Suite:** Tools for evaluating models on morphological and molecular subtyping tasks.
-- **Hierarchical Data Handling:** An interface designed to handle complex patient-to-slide relationships, including one slide per patient, multiple slides per patient, and multiple cores across multiple slides per patient.
+- **Hierarchical Data Handling:** An interface designed to handle complex patient-to-slide-to-core relationships, including one slide per patient, multiple slides per patient, and multiple cores across multiple slides per patient.
+- **Structured Provenance:** Preservation of slide and core identities throughout the data loading pipeline for precise interpretability.
 
 ## Success Metrics & Non-Functional Requirements
 - **Reproducibility:** Ensuring benchmarking results are consistent and reproducible.
