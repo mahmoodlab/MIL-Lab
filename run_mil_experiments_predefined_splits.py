@@ -28,21 +28,21 @@ from src.builder import create_model
 # Define experiment combinations
 EXPERIMENTS = [
     # Format: (model_config, display_name)
-    #('abmil.base.uni_v2.pc108-24k', 'ABMIL Trained + UNI_v2'),
+    ('abmil.base.uni_v2.pc108-24k', 'ABMIL Trained + UNI_v2'),
     #('dftd.base.uni_v2.none', 'DFTD Non-trained + UNI_v2'),
-    ('abmil.base.dino_v3.none','ABMIL Non-trained + Dinov3')
+    #('abmil.base.dino_v3.none','ABMIL Non-trained + Dinov3')
 ]
 
 # Data paths - Update these to match your setup
-TSV_PATH = '/media/nadim/Data/prostate-cancer-grade-assessment/k=all.tsv'  # Predefined splits
-WSI_DIR = '/media/nadim/Data/prostate-cancer-grade-assessment/train_images'
+TSV_PATH = '/media/nadim/Data/Imaging/prostate-cancer-grade-assessment/k=all.tsv'  # Predefined splits
+WSI_DIR = '/media/nadim/Data/Imaging/prostate-cancer-grade-assessment/train_images'
 
 # Feature paths for each encoder
 FEATURE_PATHS = {
     #'gigapath': '/media/nadim/Data/prostate-cancer-grade-assessment/trident_processedqc/20x_256px_0px_overlap/features_gigapath/',
-    #'uni_v2': '/media/nadim/Data/prostate-cancer-grade-assessment/trident_processedqc/20x_256px_0px_overlap/features_uni_v2/',
+    'uni_v2': '/media/nadim/Data/Imaging/prostate-cancer-grade-assessment/trident_processedqc/20x_256px_0px_overlap/features_uni_v2/',
     #'conch_v15': '/media/nadim/Data/prostate-cancer-grade-assessment/trident_processedqc/20x_256px_0px_overlap/features_conch_v15/',
-    'dino_v3' :'/media/nadim/Data/prostate-cancer-grade-assessment/trident_processedqc/20x_256px_0px_overlap/features_dinov3_huge_local/'
+    #'dino_v3' :'/media/nadim/Data/prostate-cancer-grade-assessment/trident_processedqc/20x_256px_0px_overlap/features_dinov3_huge_local/'
 }
 
 # Data settings

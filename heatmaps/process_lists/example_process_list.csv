@@ -1,5 +1,0 @@
-slide_id,label,process,features_path,coords_path
-slide_001,tumor,1,features/h5_files/slide_001.pt,features/h5_files/slide_001.h5
-slide_002,normal,1,features/h5_files/slide_002.pt,features/h5_files/slide_002.h5
-slide_003,tumor,1,features/h5_files/slide_003.pt,features/h5_files/slide_003.h5
-slide_004,normal,0,features/h5_files/slide_004.pt,features/h5_files/slide_004.h5
