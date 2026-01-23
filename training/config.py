@@ -21,6 +21,8 @@ class DataConfig:
     val_frac: float = 0.15
     seed: int = 42
     num_workers: int = 4
+    hierarchical: bool = False
+    group_column: str = 'case_id'
 
     def __post_init__(self):
         # Validate paths exist

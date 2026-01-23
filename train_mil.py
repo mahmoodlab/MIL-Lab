@@ -76,7 +76,11 @@ def main(config: ExperimentConfig):
         features_dir=config.data.features_dir,
     )
 
-    print(f"Total slides: {len(dataset)}")
+    if config.data.hierarchical:
+        print(f"Using HIERARCHICAL grouping by: {config.data.group_column}")
+        dataset = dataset.group_by(config.data.group_column)
+
+    print(f"Total samples: {len(dataset)}")
     print(f"Embed dim: {dataset.embed_dim}")
     print(f"Num classes: {dataset.num_classes}\n")
 
@@ -284,6 +288,17 @@ def parse_args():
         default=10,
         help='Minimum epochs before early stopping (default: 10)',
     )
+    parser.add_argument(
+        '--hierarchical',
+        action='store_true',
+        help='Enable hierarchical grouping (default: False)',
+    )
+    parser.add_argument(
+        '--group-column',
+        type=str,
+        default='case_id',
+        help='Column to group by for hierarchical/grouped training (default: case_id)',
+    )
     return parser.parse_args()
 
 
@@ -307,6 +322,8 @@ if __name__ == '__main__':
                 labels_csv=args.labels_csv,
                 features_dir=args.features_dir,
                 split_column=args.split_column,
+                hierarchical=args.hierarchical,
+                group_column=args.group_column,
             ),
             train=TrainConfig(
                 num_epochs=args.epochs,
