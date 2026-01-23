@@ -11,7 +11,7 @@ Bridges the MILDataset to PyTorch DataLoader with support for:
 import torch
 import numpy as np
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .dataset import MILDataset
@@ -69,6 +69,62 @@ class MILDatasetAdapter(Dataset):
         return [self.label_map[label] for label in self.mil_dataset.labels]
 
 
+class HierarchicalMILDatasetAdapter(Dataset):
+    """
+    Wraps HierarchicalMILDataset as a PyTorch Dataset.
+    Returns (features_list, label) where features_list is a List[torch.Tensor].
+    """
+
+    def __init__(
+        self,
+        hier_dataset: 'HierarchicalMILDataset',
+        label_map: Optional[Dict[str, int]] = None,
+    ):
+        self.hier_dataset = hier_dataset
+
+        if label_map is None:
+            unique_labels = sorted(set(hier_dataset.labels))
+            self.label_map = {label: idx for idx, label in enumerate(unique_labels)}
+        else:
+            self.label_map = label_map
+
+        self.inverse_label_map = {v: k for k, v in self.label_map.items()}
+
+    def __len__(self) -> int:
+        return len(self.hier_dataset)
+
+    def __getitem__(self, idx: int) -> Tuple[List[torch.Tensor], torch.Tensor]:
+        hier_data = self.hier_dataset[idx]
+        features_list = hier_data.features  # List of [M_i, D]
+        label = torch.tensor(self.label_map[hier_data.label], dtype=torch.long)
+        return features_list, label
+
+    @property
+    def num_classes(self) -> int:
+        return len(self.label_map)
+
+    @property
+    def embed_dim(self) -> int:
+        return self.hier_dataset.embed_dim
+
+    def get_labels(self) -> List[int]:
+        return [self.label_map[label] for label in self.hier_dataset.labels]
+
+
+def hierarchical_collate_fn(
+    batch: List[Tuple[List[torch.Tensor], torch.Tensor]]
+) -> Tuple[List[List[torch.Tensor]], torch.Tensor, List]:
+    """
+    Collate function for hierarchical MIL.
+    Each item in batch is (List[torch.Tensor], label).
+    Returns (padded_features_list, labels, masks_list).
+    """
+    features_lists, labels = zip(*batch)
+    labels = torch.stack(labels)
+    
+    return list(features_lists), labels, []
+
+
 def mil_collate_fn(
     batch: List[Tuple[torch.Tensor, torch.Tensor]]
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -108,31 +164,25 @@ def mil_collate_fn(
 
 
 def create_dataloader(
-    mil_dataset: 'MILDataset',
+    mil_dataset: Union['MILDataset', 'HierarchicalMILDataset'],
     batch_size: int = 1,
     shuffle: bool = True,
     num_workers: int = 4,
     weighted_sampling: bool = False,
     label_map: Optional[Dict[str, int]] = None,
     seed: int = 42,
-) -> Tuple[DataLoader, MILDatasetAdapter]:
+) -> Tuple[DataLoader, Dataset]:
     """
-    Create a DataLoader from a MILDataset.
-
-    Args:
-        mil_dataset: MILDataset instance
-        batch_size: Batch size (default 1 for MIL)
-        shuffle: Whether to shuffle (ignored if weighted_sampling=True)
-        num_workers: Number of dataloader workers
-        weighted_sampling: Use weighted random sampling for class balance
-        label_map: Optional label mapping (shared across train/val/test)
-        seed: Random seed for weighted sampler
-
-    Returns:
-        Tuple of (DataLoader, MILDatasetAdapter)
-        The adapter is returned so you can access label_map for other splits.
+    Create a DataLoader from a MILDataset or HierarchicalMILDataset.
     """
-    adapter = MILDatasetAdapter(mil_dataset, label_map=label_map)
+    from .dataset import HierarchicalMILDataset, GroupedMILDataset, MILDataset
+    
+    if isinstance(mil_dataset, HierarchicalMILDataset):
+        adapter = HierarchicalMILDatasetAdapter(mil_dataset, label_map=label_map)
+        collate_fn = hierarchical_collate_fn
+    else:
+        adapter = MILDatasetAdapter(mil_dataset, label_map=label_map)
+        collate_fn = mil_collate_fn if batch_size > 1 else None
 
     sampler = None
     if weighted_sampling:
@@ -152,8 +202,9 @@ def create_dataloader(
         )
         shuffle = False  # Cannot use both sampler and shuffle
 
-    # Use collate_fn only when batch_size > 1
-    collate_fn = mil_collate_fn if batch_size > 1 else None
+    # Only override collate_fn if it's not already set (e.g., for hierarchical)
+    if not isinstance(mil_dataset, HierarchicalMILDataset):
+        collate_fn = mil_collate_fn if batch_size > 1 else None
 
     loader = DataLoader(
         adapter,

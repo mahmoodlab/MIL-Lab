@@ -67,6 +67,7 @@ class HierarchicalData:
     features: List[torch.Tensor]  # List of [M_i, D] tensors, one per slide
     label: Optional[str] = None
     item_ids: Optional[List[str]] = None
+    core_ids: Optional[List[str]] = None
     num_items: int = 1
 
     def to_padded_tensor(self) -> tuple:
@@ -675,6 +676,7 @@ class HierarchicalMILDataset:
             'label': label_agg,
             'slide_id': list,
             'h5_path': list,
+            **({'core_id': list} if 'core_id' in self.item_df.columns else {})
         }).reset_index()
 
         # Check for label conflicts and warn
@@ -733,6 +735,7 @@ class HierarchicalMILDataset:
             features=features_list,  # List of tensors, NOT concatenated
             label=row.label,
             item_ids=row.slide_id,
+            core_ids=row.get('core_id'),
             num_items=row.num_items,
         )
 
