@@ -1,0 +1,8 @@
+{
+  "track_id": "fusion_strategies_20260123",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-01-23T15:00:00Z",
+  "updated_at": "2026-01-23T15:00:00Z",
+  "description": "Implement early and late fusion strategies for multi-slide patient cases."
+}

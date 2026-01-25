@@ -1,8 +1,11 @@
 # Tech Stack
 
-## Core
-- **Language:** Python 3.9+
-- **Deep Learning Framework:** PyTorch (>= 2.0.0)
+## Deep Learning & MIL
+- **Framework:** PyTorch (>= 2.0.0)
+- **Architectures:** HuggingFace Transformers, Timm
+- **Multi-slide Fusion:** 
+    - Early Fusion (Bag Concatenation via `GroupedMILDataset`)
+    - Late Fusion (Embedding Averaging via `HierarchicalMILDataset` and `MIL` base class)
 
 ## Libraries & Frameworks
 - **Model Architectures:** HuggingFace Transformers, Timm (for model backbones and vision utilities)

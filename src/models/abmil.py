@@ -114,33 +114,6 @@ class ABMIL(MIL):
         logits = self.classifier(h)
         return logits
 
-    def forward(self, h: torch.Tensor,
-                loss_fn: nn.Module = None,
-                label: torch.LongTensor = None,
-                attn_mask=None,
-                return_attention: bool = False,
-                return_slide_feats: bool = False) -> torch.Tensor:
-        """
-        Forward pass for ABMIL.
-
-        Args:
-            h: [B, M, D] input features.
-            loss_fn: Optional loss function.
-            label: Optional labels.
-            attn_mask: Optional attention mask.
-
-        Returns:
-            Tuple of (results_dict, log_dict) with logits and loss.
-        """
-        wsi_feats, log_dict = self.forward_features(h, attn_mask=attn_mask, return_attention=return_attention)
-        logits = self.forward_head(wsi_feats)
-        cls_loss = MIL.compute_loss(loss_fn, logits, label)
-        results_dict = {'logits': logits, 'loss': cls_loss}
-        log_dict['loss'] = cls_loss.item() if cls_loss is not None else -1
-        if return_slide_feats:
-            log_dict['slide_feats'] = wsi_feats
-        return results_dict, log_dict
-
 
 class ABMILGatedBaseConfig(PretrainedConfig):
     """

@@ -149,31 +149,6 @@ class Transformer(MIL):
         logits = self.classifier(h)
         return logits
 
-    def forward(self, h: torch.Tensor, loss_fn: nn.Module=None,
-                label: torch.LongTensor=None, attn_mask: torch.Tensor=None, return_attention: bool=False,
-                return_slide_feats: bool = False) -> tuple[dict, dict]:
-        """
-        Complete forward pass of the Transformer MIL model.
-
-        Args:
-            h (torch.Tensor): [B x M x D]-dim tensor representing patch embeddings.
-            loss_fn (nn.Module, optional): Loss function to compute classification loss.
-            label (torch.LongTensor, optional): Ground truth labels.
-            attn_mask (torch.Tensor, optional): Optional attention mask.
-            return_attention (bool, optional): Whether to return attention weights in the log dict.
-
-        Returns:
-            results_dict (dict): Dictionary containing 'logits' and 'cls_loss'.
-            log_dict (dict): Dictionary containing intermediate results, including attention and loss.
-        """
-        wsi_feats, log_dict = self.forward_features(h, return_attention=return_attention)  # log dict contains attention
-        logits = self.forward_head(wsi_feats)
-        cls_loss = MIL.compute_loss(loss_fn, logits, label)
-        results_dict = {'logits': logits, 'loss': cls_loss}
-        log_dict['loss'] = cls_loss.item() if cls_loss is not None else -1
-        if return_slide_feats:
-            log_dict['slide_feats'] = wsi_feats
-        return results_dict, log_dict
 
 #@dataclass
 class TransformerConfig(PretrainedConfig):

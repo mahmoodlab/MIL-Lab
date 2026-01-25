@@ -76,9 +76,19 @@ def main(config: ExperimentConfig):
         features_dir=config.data.features_dir,
     )
 
-    if config.data.hierarchical:
-        print(f"Using HIERARCHICAL grouping by: {config.data.group_column}")
-        dataset = dataset.group_by(config.data.group_column)
+    if config.data.group_column and config.data.group_column in dataset.df.columns:
+        # Check if we actually have multiple slides for some cases
+        has_multi = (dataset.df.groupby(config.data.group_column).size() > 1).any()
+        
+        if has_multi or config.data.hierarchical: # hierarchical flag can force it
+            if config.data.fusion == 'late':
+                print(f"Using LATE FUSION (Hierarchical) grouping by: {config.data.group_column}")
+                dataset = dataset.group_by(config.data.group_column)
+            else:
+                print(f"Using EARLY FUSION (Concatenated) grouping by: {config.data.group_column}")
+                dataset = dataset.concat_by(config.data.group_column)
+        else:
+            print(f"No multi-slide cases found for {config.data.group_column}, using slide-level loading.")
 
     print(f"Total samples: {len(dataset)}")
     print(f"Embed dim: {dataset.embed_dim}")
@@ -299,6 +309,13 @@ def parse_args():
         default='case_id',
         help='Column to group by for hierarchical/grouped training (default: case_id)',
     )
+    parser.add_argument(
+        '--fusion',
+        type=str,
+        default='early',
+        choices=['early', 'late'],
+        help='Fusion strategy for multi-slide cases: early (concatenate) or late (average) (default: early)',
+    )
     return parser.parse_args()
 
 
@@ -324,6 +341,7 @@ if __name__ == '__main__':
                 split_column=args.split_column,
                 hierarchical=args.hierarchical,
                 group_column=args.group_column,
+                fusion=args.fusion,
             ),
             train=TrainConfig(
                 num_epochs=args.epochs,

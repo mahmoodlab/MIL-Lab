@@ -219,31 +219,6 @@ class TransMIL(MIL):
         logits = self.classifier(wsi_feat)
         return logits
 
-    def forward(self, h: torch.Tensor,
-                loss_fn: nn.Module=None,
-                label: torch.LongTensor=None,
-                attn_mask=None,
-                return_attention: bool = False,
-                return_slide_feats: bool = False) -> tuple:
-        """
-        Complete forward pass of the model.
-
-        Args:
-            h (torch.Tensor): Input feature tensor.
-
-        Returns:
-            tuple: Slide-level features and logits from the classifier.
-        """
-        wsi_feats, log_dict = self.forward_features(h, return_attention=return_attention)
-        logits = self.forward_head(wsi_feats)
-        cls_loss = self.compute_loss(loss_fn=loss_fn, label=label, logits=logits)
-        results_dict = {'logits': logits, 'loss': cls_loss}
-        log_dict = {'loss': cls_loss.item() if cls_loss is not None else -1}
-        if return_slide_feats:
-            log_dict['slide_feats'] = wsi_feats
-        return results_dict, log_dict
-
-
 
 #@dataclass
 class TransMILConfig(PretrainedConfig):

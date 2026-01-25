@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from typing import Optional
+from typing import Optional, Union, List, Tuple
 from abc import ABC, abstractmethod
 
 
@@ -64,21 +64,21 @@ class MIL(ABC, nn.Module):
         """
         pass
 
-    @abstractmethod
-    def forward(self, h: torch.Tensor,
-                loss_fn: nn.Module = False,
+    def forward(self, h: Union[torch.Tensor, list, tuple],
+                loss_fn: nn.Module = None,
                 label: torch.LongTensor = None,
                 attn_mask=None,
                 return_attention: bool = False,
                 return_slide_feats: bool = False) -> tuple[dict, dict]:
         """
-        Complete forward pass of the model
+        Complete forward pass of the model. 
+        Supports hierarchical input (list of slides) for Late Fusion.
 
         Args:
-            h: [B x M x D]-dim torch.Tensor representing patch embeddings.
+            h: [B x M x D]-dim torch.Tensor or List of [M_i x D] tensors.
             loss_fn: Optional loss function.
             label: Optional ground truth labels.
-            attn_mask: Optional attention mask.
+            attn_mask: Optional attention mask (only for non-hierarchical).
             return_attention: If True, return attention scores in log_dict.
             return_slide_feats: If True, return 'slide_feats' in log_dict.
 
@@ -86,7 +86,35 @@ class MIL(ABC, nn.Module):
             results_dict: A dictionary containing the 'logits' and 'loss'
             log_dict: An dictionary optionally containing attention and intermediate results
         """
-        pass
+        if isinstance(h, (list, tuple)):
+            # Late Fusion: Process each slide independently and average embeddings
+            slide_feats = []
+            attentions = []
+            for slide_h in h:
+                # Ensure slide is batched [1, M, D]
+                slide_h = self.ensure_batched(slide_h)
+                s_feat, s_log = self.forward_features(slide_h, return_attention=return_attention)
+                slide_feats.append(s_feat)
+                if return_attention:
+                    attentions.append(s_log.get('attention'))
+            
+            # Average slide embeddings: [num_slides, B, D] -> [B, D]
+            # (Assuming B=1 for hierarchical data loaders currently)
+            wsi_feats = torch.stack(slide_feats).mean(dim=0)
+            log_dict = {'attention': attentions if return_attention else None}
+        else:
+            # Standard path
+            wsi_feats, log_dict = self.forward_features(h, attn_mask=attn_mask, return_attention=return_attention)
+            
+        logits = self.forward_head(wsi_feats)
+        cls_loss = self.compute_loss(loss_fn, logits, label)
+        
+        results_dict = {'logits': logits, 'loss': cls_loss}
+        log_dict['loss'] = cls_loss.item() if cls_loss is not None else -1
+        if return_slide_feats:
+            log_dict['slide_feats'] = wsi_feats
+            
+        return results_dict, log_dict
 
     @staticmethod
     def ensure_batched(tensor: torch.Tensor, return_was_unbatched: bool = False) -> torch.Tensor:

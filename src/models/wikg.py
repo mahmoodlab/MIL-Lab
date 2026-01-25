@@ -228,43 +228,6 @@ class WIKGMIL(MIL):
         logits = self.classifier(h)
         return logits
 
-    def forward(self, h: torch.Tensor,
-                loss_fn: nn.Module = None,
-                label: torch.LongTensor = None,
-                attn_mask: torch.Tensor = None,
-                return_attention: bool = False,
-                return_slide_feats: bool = False,
-                ) -> torch.Tensor:
-        """
-        Forward pass for the WIKGMIL model.
-
-        Args:
-            h (torch.Tensor): Input features of shape (batch, nodes, features).
-            loss_fn (nn.Module, optional): Loss function to compute classification loss.
-            label (torch.LongTensor, optional): Ground truth labels.
-            attn_mask (optional): Optional attention mask.
-            return_attention (bool, optional): If True, return attention weights in log_dict.
-            return_slide_feats (bool, optional): If True, return slide-level features in log_dict.
-
-        Returns:
-            Tuple[Dict, Dict]:
-                - results_dict: Dictionary containing logits and loss.
-                - log_dict: Dictionary containing attention weights, loss, and optionally slide features.
-        """
-        h, log_dict = self.forward_features(h, attn_mask=attn_mask)
-        logits = self.forward_head(h)
-
-        cls_loss = self.compute_loss(loss_fn, logits, label)
-        results_dict = {'logits': logits, 'loss': cls_loss}
-        log_dict['loss'] = cls_loss.item() if cls_loss is not None else -1
-
-        if not return_attention:
-            del log_dict['attention']
-        if return_slide_feats:
-            log_dict['slide_feats'] = h
-
-        return results_dict, log_dict
-
 
 # --- 3. PreTrainedModel Wrapper ---
 class WIKGMILModel(PreTrainedModel):

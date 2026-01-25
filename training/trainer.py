@@ -132,6 +132,17 @@ class MILTrainer:
 
         return self.history
 
+    @staticmethod
+    def to_device(data: Any, device: torch.device) -> Any:
+        """Recursively move data to device."""
+        if isinstance(data, torch.Tensor):
+            return data.to(device)
+        elif isinstance(data, (list, tuple)):
+            return [MILTrainer.to_device(x, device) for x in data]
+        elif isinstance(data, dict):
+            return {k: MILTrainer.to_device(v, device) for k, v in data.items()}
+        return data
+
     def _train_epoch(self, epoch: int) -> Dict[str, float]:
         """Run one training epoch."""
         self.model.train()
@@ -143,11 +154,15 @@ class MILTrainer:
         )
 
         for features, labels, *mask in pbar:
-            features = features.to(self.device)
-            labels = labels.to(self.device)
+            features = self.to_device(features, self.device)
+            labels = self.to_device(labels, self.device)
 
-            # Apply feature dropout
-            features = self.feature_dropout(features)
+            # Apply feature dropout (only if features is a tensor)
+            if isinstance(features, torch.Tensor):
+                features = self.feature_dropout(features)
+            else:
+                # For hierarchical, apply dropout to each slide tensor
+                features = [self.feature_dropout(f) for f in features]
 
             self.optimizer.zero_grad()
 
@@ -206,8 +221,8 @@ class MILTrainer:
 
         with torch.no_grad():
             for features, labels, *mask in pbar:
-                features = features.to(self.device)
-                labels = labels.to(self.device)
+                features = self.to_device(features, self.device)
+                labels = self.to_device(labels, self.device)
 
                 if self.config.use_amp:
                     with torch.amp.autocast('cuda'):

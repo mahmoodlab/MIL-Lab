@@ -23,6 +23,7 @@ class DataConfig:
     num_workers: int = 4
     hierarchical: bool = False
     group_column: str = 'case_id'
+    fusion: str = 'early' # 'early' or 'late'
 
     def __post_init__(self):
         # Validate paths exist
