@@ -322,7 +322,7 @@ class MILDataset:
             'test': self.get_subset(test_ids),
         }
 
-    def concat_by(self, column: str, label_voting: str = 'max') -> 'GroupedMILDataset':
+    def concat_by(self, column: str, label_voting: str = 'first') -> 'GroupedMILDataset':
         """
         Group samples by column and concatenate features.
 
