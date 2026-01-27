@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Union
 from dataclasses import dataclass, field
 
-from feature_loader import load_features, get_slide_ids, get_embed_dim
+from .feature_loader import load_features, get_slide_ids, get_embed_dim
 
 
 # =============================================================================
@@ -267,6 +267,41 @@ class MILDataset:
     @property
     def labels(self) -> List[str]:
         return self.df.label.tolist()
+
+    def load_split(self, split_json: Union[str, Path], split_name: str) -> 'MILDataset':
+        """
+        Filter dataset by a split JSON file.
+
+        Args:
+            split_json: Path to JSON file with 'train', 'val', 'test' lists of case_ids
+            split_name: Name of the split to load ('train', 'val', 'test')
+
+        Returns:
+            MILDataset subset
+        """
+        import json
+        with open(split_json, 'r') as f:
+            split_dict = json.load(f)
+
+        if split_name not in split_dict:
+            raise ValueError(f"Split '{split_name}' not found in {split_json}")
+
+        target_ids = split_dict[split_name]
+        
+        # Determine if target_ids are slide_ids or case_ids
+        # If case_id column exists, assume target_ids are case_ids
+        if 'case_id' in self.df.columns:
+            subset_df = self.df[self.df.case_id.isin(target_ids)]
+        else:
+            subset_df = self.df[self.df.slide_id.isin(target_ids)]
+
+        subset = MILDataset.__new__(MILDataset)
+        subset.features_dir = self.features_dir
+        subset.df = subset_df.reset_index(drop=True)
+        subset._index = {row.slide_id: idx for idx, row in subset.df.iterrows()}
+        subset.embed_dim = self.embed_dim
+        subset.num_classes = self.num_classes
+        return subset
 
     def get_subset(self, slide_ids: List[str]) -> 'MILDataset':
         """Create a subset with specific slides."""
@@ -518,6 +553,27 @@ class GroupedMILDataset:
     def labels(self) -> List[str]:
         return self.group_df.label.tolist()
 
+    def load_split(self, split_json: Union[str, Path], split_name: str) -> 'GroupedMILDataset':
+        """
+        Filter dataset by a split JSON file.
+
+        Args:
+            split_json: Path to JSON file with 'train', 'val', 'test' lists of group_ids
+            split_name: Name of the split to load ('train', 'val', 'test')
+
+        Returns:
+            GroupedMILDataset subset
+        """
+        import json
+        with open(split_json, 'r') as f:
+            split_dict = json.load(f)
+
+        if split_name not in split_dict:
+            raise ValueError(f"Split '{split_name}' not found in {split_json}")
+
+        target_ids = split_dict[split_name]
+        return self.get_subset(target_ids)
+
     def get_subset(self, group_ids: List[str]) -> 'GroupedMILDataset':
         """Create a subset with specific groups."""
         subset = GroupedMILDataset.__new__(GroupedMILDataset)
@@ -746,6 +802,27 @@ class HierarchicalMILDataset:
     @property
     def labels(self) -> List[str]:
         return self.group_df.label.tolist()
+
+    def load_split(self, split_json: Union[str, Path], split_name: str) -> 'HierarchicalMILDataset':
+        """
+        Filter dataset by a split JSON file.
+
+        Args:
+            split_json: Path to JSON file with 'train', 'val', 'test' lists of group_ids
+            split_name: Name of the split to load ('train', 'val', 'test')
+
+        Returns:
+            HierarchicalMILDataset subset
+        """
+        import json
+        with open(split_json, 'r') as f:
+            split_dict = json.load(f)
+
+        if split_name not in split_dict:
+            raise ValueError(f"Split '{split_name}' not found in {split_json}")
+
+        target_ids = split_dict[split_name]
+        return self.get_subset(target_ids)
 
     def get_subset(self, group_ids: List[str]) -> 'HierarchicalMILDataset':
         """Create a subset with specific groups."""
