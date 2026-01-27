@@ -11,7 +11,8 @@ from tqdm import tqdm
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 
-from .config import TrainConfig
+from .config import TrainConfig, TaskType
+from .evaluator import calculate_metrics
 
 
 class MILTrainer:
@@ -76,13 +77,32 @@ class MILTrainer:
         self.history: Dict[str, List[float]] = {
             'train_loss': [],
             'val_loss': [],
-            'val_accuracy': [],
-            'val_kappa': [],
             'learning_rate': [],
         }
-        self.best_val_kappa = -1.0
+        self.best_val_metric = -1.0
         self.best_epoch = 0
         self.patience_counter = 0
+        self._early_stopping_metric_name = self._resolve_metric_name()
+
+    def _resolve_metric_name(self) -> str:
+        """Resolve the metric name based on config."""
+        metric = self.config.early_stopping_metric
+        if metric == "auto":
+            # Auto-select: AUC for binary, kappa for multiclass
+            if self.config.task_type == TaskType.BINARY:
+                return "auc"
+            else:
+                return "kappa"
+        return metric
+
+    def _get_early_stopping_metric(self, val_metrics: Dict[str, float]) -> float:
+        """Get the metric value to use for early stopping."""
+        # Use a mapping that aligns with calculate_metrics keys
+        metric_key = self._early_stopping_metric_name
+        if metric_key == "kappa":
+            metric_key = "quadratic_kappa"
+        
+        return val_metrics.get(metric_key, val_metrics.get('balanced_accuracy', 0.0))
 
     def fit(self) -> Dict[str, List[float]]:
         """
@@ -99,9 +119,15 @@ class MILTrainer:
             # Validation
             val_metrics = self._validate_epoch(epoch)
             self.history['val_loss'].append(val_metrics['loss'])
-            self.history['val_accuracy'].append(val_metrics['accuracy'])
-            self.history['val_kappa'].append(val_metrics['kappa'])
             self.history['learning_rate'].append(self.optimizer.param_groups[0]['lr'])
+            
+            # Record all other metrics (accuracy, auc, etc.) in history
+            for key, val in val_metrics.items():
+                if key != 'loss' and key != 'confusion_matrix':
+                    history_key = f'val_{key}'
+                    if history_key not in self.history:
+                        self.history[history_key] = []
+                    self.history[history_key].append(val)
 
             # Step scheduler
             self.scheduler.step()
@@ -110,14 +136,16 @@ class MILTrainer:
             self._print_epoch_summary(epoch, train_metrics, val_metrics)
 
             # Early stopping / checkpointing
-            if val_metrics['kappa'] > self.best_val_kappa:
-                self.best_val_kappa = val_metrics['kappa']
+            current_metric = self._get_early_stopping_metric(val_metrics)
+            if current_metric > self.best_val_metric:
+                self.best_val_metric = current_metric
                 self.best_epoch = epoch
                 self.patience_counter = 0
 
                 if self.checkpoint_dir:
                     self.save_checkpoint(self.checkpoint_dir / 'best_model.pth')
-                    print(f"  >>> Saved best model (Val Kappa: {self.best_val_kappa:.4f})")
+                    metric_display = self._early_stopping_metric_name.upper()
+                    print(f"  >>> Saved best model (Val {metric_display}: {self.best_val_metric:.4f})")
             else:
                 self.patience_counter += 1
                 print(f"  Patience: {self.patience_counter}/{self.config.early_stopping_patience}")
@@ -207,12 +235,11 @@ class MILTrainer:
 
     def _validate_epoch(self, epoch: int) -> Dict[str, float]:
         """Run one validation epoch."""
-        from sklearn.metrics import accuracy_score, cohen_kappa_score
-
         self.model.eval()
         total_loss = 0.0
         all_preds = []
         all_labels = []
+        all_logits = []
 
         pbar = tqdm(
             self.val_loader,
@@ -245,15 +272,24 @@ class MILTrainer:
                 preds = torch.argmax(logits, dim=1)
                 all_preds.extend(preds.cpu().numpy())
                 all_labels.extend(labels.cpu().numpy())
+                all_logits.append(logits.cpu())
 
-        accuracy = accuracy_score(all_labels, all_preds)
-        kappa = cohen_kappa_score(all_labels, all_preds, weights='quadratic')
+        # Concatenate logits for probability computation
+        all_logits = torch.cat(all_logits, dim=0)
+        all_probs = torch.softmax(all_logits, dim=1).numpy()
 
-        return {
-            'loss': total_loss / len(self.val_loader),
-            'accuracy': accuracy,
-            'kappa': kappa,
-        }
+        # Calculate metrics using shared utility
+        metrics = calculate_metrics(
+            all_labels,
+            all_preds,
+            y_prob=all_probs,
+            task_type=self.config.task_type.value
+        )
+        
+        # Add loss
+        metrics['loss'] = total_loss / len(self.val_loader)
+        
+        return metrics
 
     def _print_epoch_summary(
         self,
@@ -263,11 +299,19 @@ class MILTrainer:
     ):
         """Print epoch summary."""
         print(f"\nEpoch {epoch + 1}/{self.config.num_epochs}:")
-        print(f"  Train Loss: {train_metrics['loss']:.4f}")
-        print(f"  Val Loss:   {val_metrics['loss']:.4f}")
-        print(f"  Val Acc:    {val_metrics['accuracy']:.4f}")
-        print(f"  Val Kappa:  {val_metrics['kappa']:.4f}")
-        print(f"  LR:         {self.optimizer.param_groups[0]['lr']:.6f}")
+        print(f"  Train Loss:    {train_metrics['loss']:.4f}")
+        print(f"  Val Loss:      {val_metrics['loss']:.4f}")
+        
+        # Print all other metrics
+        for key, val in val_metrics.items():
+            if key not in ['loss', 'confusion_matrix']:
+                # Format key for display
+                display_key = key.replace('_', ' ').title()
+                print(f"  Val {display_key:<10}: {val:.4f}")
+                
+        print(f"  LR:            {self.optimizer.param_groups[0]['lr']:.6f}")
+        print(f"  Early Stop Metric ({self._early_stopping_metric_name}): "
+              f"{self._get_early_stopping_metric(val_metrics):.4f}")
 
     def save_checkpoint(self, path: str):
         """Save model checkpoint."""
@@ -275,7 +319,8 @@ class MILTrainer:
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'scheduler_state_dict': self.scheduler.state_dict(),
-            'best_val_kappa': self.best_val_kappa,
+            'best_val_metric': self.best_val_metric,
+            'early_stopping_metric_name': self._early_stopping_metric_name,
             'best_epoch': self.best_epoch,
             'history': self.history,
         }, path)
@@ -296,7 +341,7 @@ class MILTrainer:
         if not weights_only:
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-            self.best_val_kappa = checkpoint.get('best_val_kappa', -1.0)
+            self.best_val_metric = checkpoint.get('best_val_metric', -1.0)
             self.best_epoch = checkpoint.get('best_epoch', 0)
             self.history = checkpoint.get('history', self.history)
 
