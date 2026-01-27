@@ -21,10 +21,10 @@
     - [x] Sub-task: Load a generated split JSON and verify that the `DataLoader` only yields samples from the correct set.
 - [x] Task: Conductor - User Manual Verification 'Data Loading Integration' (Protocol in workflow.md) [96a5ea1]
 
-## Phase 3: Training Script Update
-- [ ] Task: Update `run_mil.py` (or create a CV-aware version) to accept split files
-    - [ ] Sub-task: Add a `--split_dir` and `--fold` argument to the script.
-    - [ ] Sub-task: Implement logic to load the corresponding `split_<fold>.json` and pass it to the data loader.
-- [ ] Task: Integration Verification
-    - [ ] Sub-task: Run a dummy training run using one of the generated folds to ensure the pipeline is end-to-end functional.
-- [ ] Task: Conductor - User Manual Verification 'Training Script Update' (Protocol in workflow.md)
+## Phase 3: Training Script Update [checkpoint: aec847c]
+- [x] Task: Update `run_mil.py` (or create a CV-aware version) to accept split files
+    - [x] Sub-task: Add a `--split_dir` and `--fold` argument to the script.
+    - [x] Sub-task: Implement logic to load the corresponding `split_<fold>.json` and pass it to the data loader.
+- [x] Task: Integration Verification
+    - [x] Sub-task: Run a dummy training run using one of the generated folds to ensure the pipeline is end-to-end functional.
+- [x] Task: Conductor - User Manual Verification 'Training Script Update' (Protocol in workflow.md) [aec847c]
