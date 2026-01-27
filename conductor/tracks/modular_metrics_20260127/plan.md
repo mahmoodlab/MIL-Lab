@@ -1,6 +1,6 @@
 # Implementation Plan - Modular Metric Support (Refactor & Extend)
 
-## Phase 1: Centralize & Extend Metric Calculation
+## Phase 1: Centralize & Extend Metric Calculation [checkpoint: 3269196]
 - [x] Task: Update `training/evaluator.py` [b42682c]
     - [ ] Sub-task: Update `compute_metrics` (or create new `calculate_metrics`) to accept `y_prob` (probabilities) in addition to `y_true` and `y_pred`.
     - [ ] Sub-task: Implement **F1 Score** (Macro) calculation.
