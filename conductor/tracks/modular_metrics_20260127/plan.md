@@ -9,7 +9,7 @@
     - [ ] Sub-task: Add unit tests for this new metric utility.
 - [ ] Task: Conductor - User Manual Verification 'Centralize & Extend Metric Calculation' (Protocol in workflow.md)
 
-## Phase 2: Configuration Update
+## Phase 2: Configuration Update [checkpoint: f550f7e]
 - [x] Task: Update `training/config.py` [cf49208]
     - [ ] Sub-task: Add `"f1"` and `"accuracy"` to the `early_stopping_metric` Literal type hint in `TrainConfig`.
     - [ ] Sub-task: Ensure `TaskType` is correctly utilized if needed for F1 (binary vs macro).
