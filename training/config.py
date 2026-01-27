@@ -7,8 +7,15 @@ YAML/JSON loading or MLflow parameter logging.
 """
 
 from dataclasses import dataclass, field, asdict
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
 from pathlib import Path
+from enum import Enum
+
+
+class TaskType(Enum):
+    """Classification task type."""
+    BINARY = "binary"
+    MULTICLASS = "multiclass"
 
 
 @dataclass
@@ -48,6 +55,14 @@ class TrainConfig:
     use_amp: bool = True
     weighted_sampling: bool = True
     seed: int = 42
+    # Task type and metric selection
+    task_type: TaskType = TaskType.MULTICLASS
+    early_stopping_metric: Literal["auto", "kappa", "balanced_accuracy", "auc", "f1_macro", "accuracy"] = "auto"
+
+    def __post_init__(self):
+        # Convert string to TaskType if needed (for JSON loading)
+        if isinstance(self.task_type, str):
+            self.task_type = TaskType(self.task_type)
 
 
 @dataclass
@@ -59,6 +74,7 @@ class ExperimentConfig:
     num_classes: int
     output_dir: str = 'experiments'
     experiment_name: Optional[str] = None
+    num_heads: int = 1
 
     def __post_init__(self):
         # Create output directory
@@ -83,8 +99,20 @@ class ExperimentConfig:
     def save(self, path: str):
         """Save config to JSON file."""
         import json
+
+        def serialize(obj):
+            """Custom serializer for enums and other non-JSON types."""
+            if isinstance(obj, Enum):
+                return obj.value
+            elif isinstance(obj, dict):
+                return {k: serialize(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [serialize(v) for v in obj]
+            return obj
+
+        data = serialize(asdict(self))
         with open(path, 'w') as f:
-            json.dump(asdict(self), f, indent=2)
+            json.dump(data, f, indent=2)
 
     @classmethod
     def load(cls, path: str) -> 'ExperimentConfig':
@@ -100,4 +128,5 @@ class ExperimentConfig:
             num_classes=data['num_classes'],
             output_dir=data.get('output_dir', 'experiments'),
             experiment_name=data.get('experiment_name'),
+            num_heads=data.get('num_heads', 1),
         )
