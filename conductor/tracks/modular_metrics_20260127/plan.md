@@ -25,7 +25,7 @@
 - [ ] Task: Conductor - User Manual Verification 'Refactor Trainer' (Protocol in workflow.md)
 
 ## Phase 4: Verification
-- [ ] Task: Create Verification Script `verify_trainer_metrics.py`
+- [x] Task: Create Verification Script `verify_trainer_metrics.py` [50926f2]
     - [ ] Sub-task: Create a script that instantiates `MILTrainer` with a simple dummy model and synthetic data.
     - [ ] Sub-task: Configure a run with `early_stopping_metric='balanced_accuracy'`.
     - [ ] Sub-task: Run the training and verify (via assertions) that the "best model" saved corresponds to the best balanced accuracy.
