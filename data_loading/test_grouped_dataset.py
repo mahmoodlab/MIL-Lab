@@ -270,5 +270,178 @@ class TestEarlyFusionEndToEnd(unittest.TestCase):
         self.assertEqual(batched.shape, (1, 250, 512))
 
 
+def run_with_real_data(labels_csv: str, features_dir: str, group_column: str = 'case_id'):
+    """
+    Run tests with real data and print detailed shape information.
+
+    Usage:
+        python test_grouped_dataset.py --csv /path/to/labels.csv --features /path/to/features/ --group case_id
+
+    Args:
+        labels_csv: Path to your labels CSV
+        features_dir: Path to directory containing H5 files
+        group_column: Column to group by (default: 'case_id')
+    """
+    print("=" * 70)
+    print("EARLY FUSION (GIANT BAG) - REAL DATA TEST")
+    print("=" * 70)
+    print(f"\nInputs:")
+    print(f"  CSV:          {labels_csv}")
+    print(f"  Features dir: {features_dir}")
+    print(f"  Group by:     {group_column}")
+
+    # Load base dataset
+    print("\n" + "-" * 70)
+    print("STEP 1: Loading slide-level dataset")
+    print("-" * 70)
+    dataset = MILDataset(labels_csv, features_dir)
+
+    print(f"\nSlide-level stats:")
+    print(f"  Total slides:    {len(dataset)}")
+    print(f"  Embed dim:       {dataset.embed_dim}")
+    print(f"  Num classes:     {dataset.num_classes}")
+    print(f"  Unique labels:   {sorted(set(dataset.labels))}")
+
+    # Show individual slide shapes
+    print(f"\nIndividual slide shapes:")
+    slide_shapes = []
+    for i, slide in enumerate(dataset):
+        shape = slide.features.shape
+        slide_shapes.append(shape[0])
+        if i < 10:  # Show first 10
+            print(f"  {slide.slide_id}: {shape} (case: {slide.case_id}, label: {slide.label})")
+    if len(dataset) > 10:
+        print(f"  ... and {len(dataset) - 10} more slides")
+
+    print(f"\nPatch count stats (across all slides):")
+    print(f"  Min patches:     {min(slide_shapes)}")
+    print(f"  Max patches:     {max(slide_shapes)}")
+    print(f"  Mean patches:    {np.mean(slide_shapes):.1f}")
+    print(f"  Total patches:   {sum(slide_shapes)}")
+
+    # Group by case_id (early fusion)
+    print("\n" + "-" * 70)
+    print(f"STEP 2: Grouping by '{group_column}' (Early Fusion)")
+    print("-" * 70)
+    grouped = dataset.concat_by(group_column)
+
+    print(f"\nGrouped stats:")
+    print(f"  Total groups:    {len(grouped)}")
+    print(f"  Embed dim:       {grouped.embed_dim}")
+
+    # Show grouped shapes
+    print(f"\nGiant Bag shapes (after concatenation):")
+    group_shapes = []
+    group_items = []
+    for i, group in enumerate(grouped):
+        shape = group.features.shape
+        group_shapes.append(shape[0])
+        group_items.append(group.num_items)
+        if i < 10:  # Show first 10
+            print(f"  {group.group_id}: {shape}")
+            print(f"    - Slides: {group.item_ids}")
+            print(f"    - Label: {group.label}")
+    if len(grouped) > 10:
+        print(f"  ... and {len(grouped) - 10} more groups")
+
+    print(f"\nGiant Bag patch count stats:")
+    print(f"  Min patches:     {min(group_shapes)}")
+    print(f"  Max patches:     {max(group_shapes)}")
+    print(f"  Mean patches:    {np.mean(group_shapes):.1f}")
+    print(f"  Total patches:   {sum(group_shapes)}")
+
+    print(f"\nSlides per group stats:")
+    print(f"  Min slides:      {min(group_items)}")
+    print(f"  Max slides:      {max(group_items)}")
+    print(f"  Mean slides:     {np.mean(group_items):.2f}")
+
+    # Verify concatenation
+    print("\n" + "-" * 70)
+    print("STEP 3: Verification")
+    print("-" * 70)
+
+    # Check total patches preserved
+    total_slide_patches = sum(slide_shapes)
+    total_group_patches = sum(group_shapes)
+    patches_match = total_slide_patches == total_group_patches
+
+    print(f"\n  Total patches before grouping: {total_slide_patches}")
+    print(f"  Total patches after grouping:  {total_group_patches}")
+    print(f"  Patches preserved: {'✓ YES' if patches_match else '✗ NO (ERROR!)'}")
+
+    # Check embed dim preserved
+    sample_group = grouped[0]
+    dim_preserved = sample_group.features.shape[1] == dataset.embed_dim
+    print(f"\n  Original embed dim: {dataset.embed_dim}")
+    print(f"  Grouped embed dim:  {sample_group.features.shape[1]}")
+    print(f"  Dimension preserved: {'✓ YES' if dim_preserved else '✗ NO (ERROR!)'}")
+
+    # Detailed check on one group
+    print("\n" + "-" * 70)
+    print("STEP 4: Detailed check on first group")
+    print("-" * 70)
+
+    first_group = grouped[0]
+    print(f"\n  Group ID: {first_group.group_id}")
+    print(f"  Slides in group: {first_group.item_ids}")
+
+    # Sum individual slide patches
+    expected_patches = 0
+    for slide_id in first_group.item_ids:
+        slide = dataset[slide_id]
+        print(f"    - {slide_id}: {slide.features.shape[0]} patches")
+        expected_patches += slide.features.shape[0]
+
+    actual_patches = first_group.features.shape[0]
+    print(f"\n  Expected total (sum): {expected_patches}")
+    print(f"  Actual Giant Bag:     {actual_patches}")
+    print(f"  Match: {'✓ YES' if expected_patches == actual_patches else '✗ NO (ERROR!)'}")
+
+    # PyTorch adapter test
+    print("\n" + "-" * 70)
+    print("STEP 5: PyTorch DataLoader compatibility")
+    print("-" * 70)
+
+    from pytorch_adapter import create_dataloader
+
+    loader, adapter = create_dataloader(grouped, batch_size=1, shuffle=False)
+
+    print(f"\n  Adapter num_classes: {adapter.num_classes}")
+    print(f"  Adapter embed_dim:   {adapter.embed_dim}")
+    print(f"  Label map:           {adapter.label_map}")
+
+    # Get one batch
+    features, labels, mask = next(iter(loader))
+    print(f"\n  Batch shapes:")
+    print(f"    features: {features.shape}  (batch, patches, embed_dim)")
+    print(f"    labels:   {labels.shape}")
+    print(f"    mask:     {mask.shape}")
+
+    print("\n" + "=" * 70)
+    print("TEST COMPLETE")
+    print("=" * 70)
+
+    return {
+        'dataset': dataset,
+        'grouped': grouped,
+        'loader': loader,
+        'adapter': adapter,
+    }
+
+
 if __name__ == '__main__':
-    unittest.main(verbosity=2)
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Test GroupedMILDataset (Early Fusion)')
+    parser.add_argument('--csv', type=str, help='Path to labels CSV')
+    parser.add_argument('--features', type=str, help='Path to features directory')
+    parser.add_argument('--group', type=str, default='case_id', help='Column to group by (default: case_id)')
+
+    args = parser.parse_args()
+
+    if args.csv and args.features:
+        # Run with real data
+        run_with_real_data(args.csv, args.features, args.group)
+    else:
+        # Run unit tests with mock data
+        unittest.main(verbosity=2)
