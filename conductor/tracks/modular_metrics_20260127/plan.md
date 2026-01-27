@@ -15,7 +15,7 @@
     - [ ] Sub-task: Ensure `TaskType` is correctly utilized if needed for F1 (binary vs macro).
 - [ ] Task: Conductor - User Manual Verification 'Configuration Update' (Protocol in workflow.md)
 
-## Phase 3: Refactor Trainer
+## Phase 3: Refactor Trainer [checkpoint: 817a5d9]
 - [x] Task: Update `training/trainer.py` [fe19ecc]
     - [ ] Sub-task: Import `calculate_metrics` (or the updated `compute_metrics`) from `evaluator.py`.
     - [ ] Sub-task: Replace the inline metric calculation in `_validate_epoch` with the shared utility.
