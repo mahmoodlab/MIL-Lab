@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Union
 from dataclasses import dataclass, field
 
-from .feature_loader import load_features, get_slide_ids, get_embed_dim
+from feature_loader import load_features, get_slide_ids, get_embed_dim
 
 
 # =============================================================================
@@ -861,7 +861,8 @@ if __name__ == '__main__':
         print("\n" + "=" * 60)
         print("Test 1: MILDataset (slide-level)")
         print("=" * 60)
-
+        labels_csv = '../panda_labels.csv'
+        features_dir = '/media/nadim/Data/Imaging/prostate-cancer-grade-assessment/trident_processedqc/20x_256px_0px_overlap/features_uni_v2/'
         dataset = MILDataset(labels_csv, features_dir)
 
         print(f"\nDataset info:")
