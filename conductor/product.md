@@ -21,6 +21,7 @@ The user is building a library for Multiple Instance Learning (MIL) models in co
 - **Multi-slide fusion strategies:** Standardized support for **Early Fusion** (pooling all patches from multiple slides) and **Late Fusion** (averaging slide-level embeddings), enabling patient-level predictions from diverse data sources.
 - **Structured Provenance:** Preservation of slide and core identities throughout the data loading pipeline for precise interpretability.
 - **Modular Evaluation Framework:** Support for diverse classification metrics (AUC, F1, Balanced Accuracy) with flexible early stopping criteria tailored to specific task requirements (e.g., binary vs. multiclass).
+- **Robust K-Fold Cross-Validation:** Built-in support for patient-level N-fold cross-validation with pre-generated JSON splits to ensure scientific rigor and prevent data leakage in multi-slide experiments.
 
 ## Success Metrics & Non-Functional Requirements
 - **Reproducibility:** Ensuring benchmarking results are consistent and reproducible.
