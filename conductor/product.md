@@ -22,6 +22,7 @@ The user is building a library for Multiple Instance Learning (MIL) models in co
 - **Structured Provenance:** Preservation of slide and core identities throughout the data loading pipeline for precise interpretability.
 - **Modular Evaluation Framework:** Support for diverse classification metrics (AUC, F1, Balanced Accuracy) with flexible early stopping criteria tailored to specific task requirements (e.g., binary vs. multiclass).
 - **Robust K-Fold Cross-Validation:** Built-in support for patient-level N-fold cross-validation with pre-generated JSON splits to ensure scientific rigor and prevent data leakage in multi-slide experiments.
+- **Automated CV Orchestration:** Python orchestrator for executing multiple cross-validation folds in parallel with automatic result aggregation and statistical reporting.
 
 ## Success Metrics & Non-Functional Requirements
 - **Reproducibility:** Ensuring benchmarking results are consistent and reproducible.
