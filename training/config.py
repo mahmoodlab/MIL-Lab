@@ -24,6 +24,8 @@ class DataConfig:
     labels_csv: str
     features_dir: str
     split_column: Optional[str] = None  # If set, use this column for splits
+    split_dir: Optional[str] = None     # If set, load pre-generated JSON splits
+    fold: Optional[int] = None          # Specific fold to load if split_dir is set
     train_frac: float = 0.7
     val_frac: float = 0.15
     seed: int = 42
