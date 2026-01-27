@@ -13,13 +13,13 @@
     - [x] Sub-task: Verify reproducibility with a fixed seed.
 - [x] Task: Conductor - User Manual Verification 'Split Generation Infrastructure' (Protocol in workflow.md) [05bb0fe]
 
-## Phase 2: Data Loading Integration
-- [ ] Task: Update `data_loading/dataset.py` (or adapter) to support Split JSONs
-    - [ ] Sub-task: Add a method or parameter to filter the dataframe based on a provided split JSON and the desired set name.
-    - [ ] Sub-task: Ensure this works correctly with the existing `MILDataset` and `HierarchicalMILDataset`.
-- [ ] Task: Write Tests for Dataset Filtering `tests/test_dataset_splits.py`
-    - [ ] Sub-task: Load a generated split JSON and verify that the `DataLoader` only yields samples from the correct set.
-- [ ] Task: Conductor - User Manual Verification 'Data Loading Integration' (Protocol in workflow.md)
+## Phase 2: Data Loading Integration [checkpoint: 96a5ea1]
+- [x] Task: Update `data_loading/dataset.py` (or adapter) to support Split JSONs
+    - [x] Sub-task: Add a method or parameter to filter the dataframe based on a provided split JSON and the desired set name.
+    - [x] Sub-task: Ensure this works correctly with the existing `MILDataset` and `HierarchicalMILDataset`.
+- [x] Task: Write Tests for Dataset Filtering `tests/test_dataset_splits.py`
+    - [x] Sub-task: Load a generated split JSON and verify that the `DataLoader` only yields samples from the correct set.
+- [x] Task: Conductor - User Manual Verification 'Data Loading Integration' (Protocol in workflow.md) [96a5ea1]
 
 ## Phase 3: Training Script Update
 - [ ] Task: Update `run_mil.py` (or create a CV-aware version) to accept split files
