@@ -18,8 +18,9 @@ The user is building a library for Multiple Instance Learning (MIL) models in co
 - **Encoder Integration:** Built-in support for patch foundation models such as UNI, CONCH, and GigaPath.
 - **Benchmarking Suite:** Tools for evaluating models on morphological and molecular subtyping tasks.
 - **Hierarchical Data Handling:** An interface designed to handle complex patient-to-slide-to-core relationships, including one slide per patient, multiple slides per patient, and multiple cores across multiple slides per patient.
-- **Multi-slide Fusion Strategies:** Standardized support for **Early Fusion** (pooling all patches from multiple slides) and **Late Fusion** (averaging slide-level embeddings), enabling patient-level predictions from diverse data sources.
+- **Multi-slide fusion strategies:** Standardized support for **Early Fusion** (pooling all patches from multiple slides) and **Late Fusion** (averaging slide-level embeddings), enabling patient-level predictions from diverse data sources.
 - **Structured Provenance:** Preservation of slide and core identities throughout the data loading pipeline for precise interpretability.
+- **Modular Evaluation Framework:** Support for diverse classification metrics (AUC, F1, Balanced Accuracy) with flexible early stopping criteria tailored to specific task requirements (e.g., binary vs. multiclass).
 
 ## Success Metrics & Non-Functional Requirements
 - **Reproducibility:** Ensuring benchmarking results are consistent and reproducible.

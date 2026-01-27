@@ -10,7 +10,7 @@
 ## Libraries & Frameworks
 - **Model Architectures:** HuggingFace Transformers, Timm (for model backbones and vision utilities)
 - **Computer Vision:** OpenCV, Scikit-image, OpenSlide (for WSI handling)
-- **Data Analysis:** Pandas, NumPy, Scikit-learn
+- **Data Analysis:** Pandas, NumPy, Scikit-learn (Metrics: ROC-AUC, F1-Macro, Cohen's Kappa)
 - **Scientific Computing:** SciPy
 
 ## MLOps & Monitoring
