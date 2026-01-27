@@ -14,77 +14,124 @@ import numpy as np
 from torch.utils.data import DataLoader
 
 from training.config import ExperimentConfig, DataConfig, TrainConfig, TaskType
+
 from training.trainer import MILTrainer
+
 from training.evaluator import evaluate, print_evaluation_results
+
 from data_loading.dataset import MILDataset
-from data_loading.pytorch_adapter import MILPytorchDataset, collate_mil
+
+from data_loading.pytorch_adapter import create_dataloader
+
 from src.builder import create_model
 
+
+
 def run_fold(config: ExperimentConfig, split_dir: str, fold: int):
+
     """Run a single fold of training."""
+
     print(f"\n{'='*80}")
+
     print(f"RUNNING FOLD {fold} from {split_dir}")
-    print(f"{ '='*80}\n")
+
+    print(f"{'='*80}\n")
+
+
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     print(f"Device: {device}")
 
+
+
     # 1. Initialize Base Dataset
+
     base_ds = MILDataset(config.data.labels_csv, config.data.features_dir)
+
     
+
     # 2. Apply multi-slide fusion if needed
+
     if config.data.hierarchical:
+
         print("Using Hierarchical fusion (Late Fusion)")
+
         full_ds = base_ds.group_by(config.data.group_column)
+
     else:
+
         print("Using Grouped fusion (Early Fusion)")
+
         full_ds = base_ds.concat_by(config.data.group_column)
 
+
+
     # 3. Load predefined split
+
     split_json = os.path.join(split_dir, f'splits_{fold}.json')
+
     print(f"Loading split from {split_json}...")
+
     
+
     train_ds = full_ds.load_split(split_json, 'train')
+
     val_ds = full_ds.load_split(split_json, 'val')
+
     test_ds = full_ds.load_split(split_json, 'test')
+
+
 
     print(f"Split sizes: Train={len(train_ds)}, Val={len(val_ds)}, Test={len(test_ds)}")
 
-    # 4. Wrap for PyTorch
-    train_pt = MILPytorchDataset(train_ds)
-    val_pt = MILPytorchDataset(val_ds)
-    test_pt = MILPytorchDataset(test_ds)
 
-    # 5. Create Dataloaders
-    # Weighted sampling for train
-    from torch.utils.data import WeightedRandomSampler
-    labels = [int(l) for l in train_ds.labels]
-    class_counts = np.bincount(labels)
-    class_weights = 1.0 / (class_counts + 1e-6)
-    sample_weights = class_weights[labels]
-    sampler = WeightedRandomSampler(sample_weights, len(sample_weights))
 
-    train_loader = DataLoader(
-        train_pt, 
+    # 4. Create Dataloaders
+
+    train_loader, train_adapter = create_dataloader(
+
+        train_ds, 
+
         batch_size=config.train.batch_size, 
-        sampler=sampler,
+
+        weighted_sampling=config.train.weighted_sampling,
+
         num_workers=config.data.num_workers,
-        collate_fn=collate_mil
+
+        seed=config.train.seed
+
     )
-    val_loader = DataLoader(
-        val_pt, 
+
+    val_loader, _ = create_dataloader(
+
+        val_ds, 
+
         batch_size=config.train.batch_size, 
+
         shuffle=False,
+
         num_workers=config.data.num_workers,
-        collate_fn=collate_mil
+
+        label_map=train_adapter.label_map
+
     )
-    test_loader = DataLoader(
-        test_pt, 
+
+    test_loader, _ = create_dataloader(
+
+        test_ds, 
+
         batch_size=1, 
+
         shuffle=False,
+
         num_workers=config.data.num_workers,
-        collate_fn=collate_mil
+
+        label_map=train_adapter.label_map
+
     )
+
+
 
     # 6. Create Model
     model = create_model(

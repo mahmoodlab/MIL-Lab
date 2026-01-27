@@ -24,6 +24,7 @@ class ABMIL(MIL):
         attn_dim (int): Dimension of the attention mechanism (default: 384).
         gate (int): Whether to use gated attention (True) or standard attention (False) (default: True).
         num_classes (int): Number of output classes for the classification head (default: 2).
+        num_heads (int): Number of attention heads (default: 1).
     """
 
     def __init__(
@@ -35,8 +36,10 @@ class ABMIL(MIL):
             attn_dim: int = 384,
             gate: int = True,
             num_classes: int = 2,
+            num_heads: int = 1,
     ):
         super().__init__(in_dim=in_dim, embed_dim=embed_dim, num_classes=num_classes)
+        self.num_heads = num_heads
         self.patch_embed = create_mlp(
             in_dim=in_dim,
             hid_dims=[embed_dim] *
@@ -51,11 +54,12 @@ class ABMIL(MIL):
             L=embed_dim,
             D=attn_dim,
             dropout=dropout,
-            num_classes=1
+            num_classes=num_heads  # num_classes here is actually num_heads (K)
         )
 
         if num_classes > 0:
-            self.classifier = nn.Linear(embed_dim, num_classes)
+            # With multiple heads, we concatenate them before classification
+            self.classifier = nn.Linear(embed_dim * num_heads, num_classes)
         self.initialize_weights()
 
     def forward_attention(self, h: torch.Tensor, attn_mask=None, attn_only=True) -> torch.Tensor:
@@ -98,8 +102,11 @@ class ABMIL(MIL):
             Tuple[torch.Tensor, dict]: Bag features [B, D] and attention weights.
         """
         h, A_base = self.forward_attention(h, attn_mask=attn_mask, attn_only=False)  # A == B x K x M
-        A = F.softmax(A_base, dim=-1)  # softmax over N
-        h = torch.bmm(A, h).squeeze(dim=1)  # B x K x C --> B x C
+        A = F.softmax(A_base, dim=-1)  # softmax over M
+        h = torch.bmm(A, h)  # B x K x D
+        # Concatenate heads: [B, K, D] -> [B, K*D]
+        B = h.shape[0]
+        h = h.view(B, -1)
         log_dict = {'attention': A_base if return_attention else None}
         return h, log_dict
 
@@ -131,6 +138,7 @@ class ABMILGatedBaseConfig(PretrainedConfig):
         dropout (float): Dropout rate applied in the MLP and attention layers (default: 0.25).
         in_dim (int): Input feature dimension for each instance (default: 1024).
         num_classes (int): Number of output classes for the classification head (default: 2).
+        num_heads (int): Number of attention heads (default: 1).
         **kwargs: Additional keyword arguments passed to the PretrainedConfig base class.
 
     Attributes:
@@ -142,6 +150,7 @@ class ABMILGatedBaseConfig(PretrainedConfig):
         dropout (float): Dropout rate applied in the MLP and attention layers.
         in_dim (int): Input feature dimension for each instance.
         num_classes (int): Number of output classes for the classification head.
+        num_heads (int): Number of attention heads.
         auto_map (dict): Mapping for Hugging Face AutoConfig and AutoModel registration.
     """
 
@@ -158,6 +167,7 @@ class ABMILGatedBaseConfig(PretrainedConfig):
                  dropout: float = 0.25,
                  in_dim: int = 1024,
                  num_classes: int = 2,
+                 num_heads: int = 1,
                  **kwargs):
         super().__init__(**kwargs)
         self.gate = gate
@@ -167,6 +177,7 @@ class ABMILGatedBaseConfig(PretrainedConfig):
         self.dropout = dropout
         self.in_dim = in_dim
         self.num_classes = num_classes
+        self.num_heads = num_heads
         self.auto_map = {
             "AutoConfig": "modeling_abmil.ABMILGatedBaseConfig",
             "AutoModel": "modeling_abmil.ABMILModel",
@@ -193,7 +204,8 @@ class ABMILModel(PreTrainedModel):
             dropout=config.dropout,
             attn_dim=config.attn_dim,
             gate=config.gate,
-            num_classes=config.num_classes
+            num_classes=config.num_classes,
+            num_heads=config.num_heads,
         )
         self.forward = self.model.forward
         self.forward_attention = self.model.forward_attention

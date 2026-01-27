@@ -60,6 +60,8 @@ def generate_splits(
         rng = np.random.RandomState(seed + fold_idx) # Vary seed slightly per fold for inner split
         n_train_val = len(train_val_cases)
         n_val = int(n_train_val * val_ratio)
+        if n_val == 0 and val_ratio > 0 and n_train_val >= 2:
+            n_val = 1
         
         # Shuffle indices
         indices = np.arange(n_train_val)

@@ -279,11 +279,14 @@ class MILTrainer:
         all_probs = torch.softmax(all_logits, dim=1).numpy()
 
         # Calculate metrics using shared utility
+        # Infer num_classes from probability output shape
+        num_classes = all_probs.shape[1]
         metrics = calculate_metrics(
             all_labels,
             all_preds,
             y_prob=all_probs,
-            task_type=self.config.task_type.value
+            task_type=self.config.task_type.value,
+            num_classes=num_classes,
         )
         
         # Add loss

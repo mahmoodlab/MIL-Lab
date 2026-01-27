@@ -1,5 +1,5 @@
 #!/bin/bash
-# MIL Model Training
+# MIL Model Training - Binary Classification with Multi-Slide Cases
 
 set -e
 
@@ -7,22 +7,23 @@ set -e
 # CONFIGURATION
 # =============================================================================
 
-# Data paths
-LABELS_CSV="panda_labels.csv"
-FEATURES_DIR="/media/nadim/Data/Imaging/prostate-cancer-grade-assessment/trident_processedqc/20x_256px_0px_overlap/features_uni_v2/"
+# Data paths (UPDATE THESE)
+LABELS_CSV="/path/to/your/labels.csv"
+FEATURES_DIR="/path/to/your/features/"
 
 # Model settings
-MODEL="abmil.base.uni_v2.pc108-24k"
-NUM_CLASSES=6
-NUM_HEADS=1  # Number of attention heads (ABMIL)
+MODEL="abmil.base.uni"          # Using UNI v1 (1024 dim), no pretrained weights
+NUM_CLASSES=2                    # Binary classification
 
 # Training settings
-EPOCHS=20
-EARLY_STOPPING_PATIENCE=100
+EPOCHS=50
+EARLY_STOPPING_PATIENCE=10
 MIN_EPOCHS=10
-OUTPUT_DIR="experiments"
-TASK_TYPE="multiclass"  # "binary" or "multiclass"
-EARLY_STOPPING_METRIC="auto"  # "auto", "kappa", "balanced_accuracy", "auc"
+OUTPUT_DIR="experiments_binary"
+
+# Multi-slide grouping settings
+GROUP_COLUMN="case_id"           # Column to group slides by
+FUSION="early"                   # early = concatenate slides into Giant Bag
 
 # =============================================================================
 # RUN
@@ -33,11 +34,9 @@ python train_mil.py \
     --features-dir "$FEATURES_DIR" \
     --model "$MODEL" \
     --num-classes "$NUM_CLASSES" \
-    --num-heads "$NUM_HEADS" \
     --epochs "$EPOCHS" \
     --early-stopping-patience "$EARLY_STOPPING_PATIENCE" \
     --min-epochs "$MIN_EPOCHS" \
-    --task-type "$TASK_TYPE" \
-    --early-stopping-metric "$EARLY_STOPPING_METRIC" \
-    --split-column split \
+    --group-column "$GROUP_COLUMN" \
+    --fusion "$FUSION" \
     --output-dir "$OUTPUT_DIR"

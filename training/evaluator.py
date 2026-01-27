@@ -24,7 +24,8 @@ def evaluate(
     test_loader: DataLoader,
     device: torch.device,
     use_amp: bool = True,
-    task_type: str = 'multiclass'
+    task_type: str = 'multiclass',
+    num_classes: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Evaluate a trained MIL model on test data.
@@ -76,11 +77,15 @@ def evaluate(
     all_logits = torch.cat(all_logits, dim=0)
     all_probs = torch.softmax(all_logits, dim=1).numpy()
 
+    # Infer num_classes from probability output if not provided
+    n_classes = num_classes if num_classes else all_probs.shape[1]
+
     metrics = calculate_metrics(
-        all_labels, 
-        all_preds, 
-        y_prob=all_probs, 
-        task_type=task_type
+        all_labels,
+        all_preds,
+        y_prob=all_probs,
+        task_type=task_type,
+        num_classes=n_classes,
     )
 
     return {
@@ -94,7 +99,8 @@ def calculate_metrics(
     y_true: List[int],
     y_pred: List[int],
     y_prob: Optional[np.ndarray] = None,
-    task_type: str = 'multiclass'
+    task_type: str = 'multiclass',
+    num_classes: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Compute comprehensive evaluation metrics.
@@ -104,6 +110,7 @@ def calculate_metrics(
         y_pred: Predicted labels
         y_prob: Predicted probabilities (optional, required for AUC)
         task_type: 'binary' or 'multiclass'
+        num_classes: Number of classes (inferred from y_prob if not provided)
 
     Returns:
         Dictionary with metrics:
@@ -117,31 +124,76 @@ def calculate_metrics(
     metrics = {
         'accuracy': accuracy_score(y_true, y_pred),
         'balanced_accuracy': balanced_accuracy_score(y_true, y_pred),
-        'f1_macro': f1_score(y_true, y_pred, average='macro'),
+        'f1_macro': f1_score(y_true, y_pred, average='macro', zero_division=0),
         'quadratic_kappa': cohen_kappa_score(y_true, y_pred, weights='quadratic'),
         'confusion_matrix': confusion_matrix(y_true, y_pred),
     }
 
+    # Compute AUC if probabilities provided
     if y_prob is not None:
-        try:
-            if task_type == 'binary':
-                # For binary, use probability of positive class (index 1)
-                if y_prob.ndim == 2 and y_prob.shape[1] == 2:
-                    auc = roc_auc_score(y_true, y_prob[:, 1])
-                else:
-                    auc = roc_auc_score(y_true, y_prob)
-            else:
-                # Multiclass: use One-vs-Rest macro average
-                auc = roc_auc_score(
-                    y_true, y_prob,
-                    multi_class='ovr', average='macro'
-                )
-            metrics['auc'] = auc
-        except ValueError:
-            # Can fail if only one class is present in set
-            metrics['auc'] = 0.0
+        auc = _compute_auc_safe(y_true, y_prob, task_type, num_classes)
+        metrics['auc'] = auc
 
     return metrics
+
+
+def _compute_auc_safe(
+    y_true: List[int],
+    y_prob: np.ndarray,
+    task_type: str,
+    num_classes: Optional[int] = None,
+) -> float:
+    """
+    Compute AUC robustly, handling missing classes in validation set.
+
+    For multiclass, computes One-vs-Rest AUC for each class that has
+    both positive and negative samples, then averages.
+    """
+    y_true = np.array(y_true)
+
+    try:
+        if task_type == 'binary':
+            # For binary, use probability of positive class
+            if y_prob.ndim == 2 and y_prob.shape[1] == 2:
+                probs = y_prob[:, 1]
+            else:
+                probs = y_prob
+
+            # Check we have both classes
+            if len(np.unique(y_true)) < 2:
+                return 0.0
+            return roc_auc_score(y_true, probs)
+
+        else:
+            # Multiclass: compute OvR AUC for each class manually
+            n_classes = num_classes if num_classes else y_prob.shape[1]
+
+            class_aucs = []
+            for cls in range(n_classes):
+                # Binary labels for this class (one-vs-rest)
+                y_binary = (y_true == cls).astype(int)
+
+                # Skip if class has no positive or no negative samples
+                if y_binary.sum() == 0 or y_binary.sum() == len(y_binary):
+                    continue
+
+                # Probability for this class
+                cls_prob = y_prob[:, cls]
+
+                try:
+                    cls_auc = roc_auc_score(y_binary, cls_prob)
+                    class_aucs.append(cls_auc)
+                except ValueError:
+                    continue
+
+            if len(class_aucs) == 0:
+                return 0.0
+
+            return np.mean(class_aucs)
+
+    except Exception as e:
+        print(f"  Warning: Could not compute AUC: {e}")
+        return 0.0
 
 
 def compute_metrics(y_true: List[int], y_pred: List[int]) -> Dict[str, float]:

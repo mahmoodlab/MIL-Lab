@@ -31,33 +31,35 @@ def find_folds(split_dir: str) -> List[int]:
 
 def run_fold_worker(args: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Worker function to run a single fold. 
-    
+    Worker function to run a single fold.
+
     Args:
         args: Dictionary containing:
             - fold: int
             - config: str (path)
             - split_dir: str (path)
             - output_dir: str (path)
-            
+            - verbose: bool (show real-time output)
+
     Returns:
         Dictionary with status and result path
     """
     fold = args['fold']
+    verbose = args.get('verbose', False)
     print(f"[Fold {fold}] Starting...")
-    
+
     cmd = [
         'python3', 'run_mil_experiments_predefined_splits.py',
         '--config', args['config'],
         '--split_dir', args['split_dir'],
         '--fold', str(fold)
     ]
-    
+
     # Override output directory if provided to orchestrator
     if args.get('output_dir'):
         cmd.extend(['--output_dir', args['output_dir']])
         fold_output_dir = os.path.join(args['output_dir'], f'fold_{fold}')
-    
+
     # Ensure PYTHONPATH includes current directory so modules can be imported
     env = os.environ.copy()
     if 'PYTHONPATH' not in env:
@@ -66,20 +68,37 @@ def run_fold_worker(args: Dict[str, Any]) -> Dict[str, Any]:
         env['PYTHONPATH'] = os.getcwd() + os.pathsep + env['PYTHONPATH']
 
     try:
-        # Capture output to avoid interleaved printing
-        result = subprocess.run(
-            cmd, 
-            check=True, 
-            capture_output=True, 
-            text=True,
-            env=env
-        )
+        if verbose:
+            # Show output in real-time (for single worker mode)
+            result = subprocess.run(
+                cmd,
+                check=True,
+                env=env
+            )
+        else:
+            # Log output to file for parallel mode (allows tail -f)
+            log_file = os.path.join(fold_output_dir, 'training.log') if args.get('output_dir') else f'fold_{fold}.log'
+            os.makedirs(os.path.dirname(log_file), exist_ok=True)
+            print(f"[Fold {fold}] Logging to: {log_file}")
+            with open(log_file, 'w') as f:
+                result = subprocess.run(
+                    cmd,
+                    check=True,
+                    stdout=f,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    env=env
+                )
         print(f"[Fold {fold}] Completed successfully.")
         return {'fold': fold, 'status': 'success', 'output_dir': fold_output_dir if args.get('output_dir') else None}
     except subprocess.CalledProcessError as e:
         print(f"[Fold {fold}] FAILED.")
-        print(f"[Fold {fold}] Error: {e.stderr}")
-        return {'fold': fold, 'status': 'failed', 'error': e.stderr}
+        if hasattr(e, 'stderr') and e.stderr:
+            print(f"[Fold {fold}] Error: {e.stderr}")
+        else:
+            log_file = os.path.join(fold_output_dir, 'training.log') if args.get('output_dir') else f'fold_{fold}.log'
+            print(f"[Fold {fold}] Check log: {log_file}")
+        return {'fold': fold, 'status': 'failed', 'error': getattr(e, 'stderr', str(e))}
 
 def aggregate_results(output_dir: str) -> pd.DataFrame:
     """
@@ -134,20 +153,29 @@ def main():
     parser.add_argument('--split_dir', type=str, required=True, help='Directory containing split JSONs')
     parser.add_argument('--output_dir', type=str, required=True, help='Root output directory for CV run')
     parser.add_argument('--workers', type=int, default=1, help='Number of parallel workers')
-    
+    parser.add_argument('--quiet', action='store_true', help='Suppress real-time training output (auto-enabled for parallel runs)')
+
     args = parser.parse_args()
-    
+
     # Find folds
     folds = find_folds(args.split_dir)
     if not folds:
         print(f"No splits found in {args.split_dir}")
         return
-        
+
+    # Show progress by default for single worker, suppress for parallel
+    verbose = (args.workers == 1) and not args.quiet
+
     print(f"Found {len(folds)} folds: {folds}")
     print(f"Running with {args.workers} workers...")
-    
+    if verbose:
+        print("Verbose mode: showing real-time training output")
+    else:
+        print(f"Parallel mode: output logged to <output_dir>/fold_N/training.log")
+        print(f"  To follow progress: tail -f {args.output_dir}/fold_*/training.log")
+
     os.makedirs(args.output_dir, exist_ok=True)
-    
+
     # Prepare worker args
     worker_args = []
     for fold in folds:
@@ -155,7 +183,8 @@ def main():
             'fold': fold,
             'config': args.config,
             'split_dir': args.split_dir,
-            'output_dir': args.output_dir
+            'output_dir': args.output_dir,
+            'verbose': verbose
         })
         
     # Run in parallel

@@ -20,6 +20,7 @@ from .config import (
     DataConfig,
     TrainConfig,
     ExperimentConfig,
+    TaskType,
 )
 
 from .trainer import MILTrainer
@@ -36,6 +37,7 @@ __all__ = [
     'DataConfig',
     'TrainConfig',
     'ExperimentConfig',
+    'TaskType',
     # Training
     'MILTrainer',
     # Evaluation

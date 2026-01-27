@@ -31,7 +31,7 @@ from datetime import datetime
 from pathlib import Path
 
 from data_loading import MILDataset, create_dataloader
-from training import ExperimentConfig, DataConfig, TrainConfig, MILTrainer, evaluate, print_evaluation_results
+from training import ExperimentConfig, DataConfig, TrainConfig, MILTrainer, evaluate, print_evaluation_results, TaskType
 from src.builder import create_model
 
 
@@ -159,6 +159,10 @@ def main(config: ExperimentConfig, checkpoint_path: str = None):
     if not config.model_name.lower().startswith('dftd'):
         model_kwargs['gate'] = True
 
+    # Add num_heads for models that support it (e.g., ABMIL)
+    if hasattr(config, 'num_heads') and config.num_heads is not None:
+        model_kwargs['num_heads'] = config.num_heads
+
     # Add checkpoint_path if provided for local model loading
     if checkpoint_path:
         print(f"Loading model from local checkpoint: {checkpoint_path}")
@@ -191,7 +195,12 @@ def main(config: ExperimentConfig, checkpoint_path: str = None):
     print("EVALUATION")
     print("=" * 70 + "\n")
 
-    results = evaluate(model, test_loader, device, use_amp=config.train.use_amp)
+    results = evaluate(
+        model, test_loader, device,
+        use_amp=config.train.use_amp,
+        task_type=config.train.task_type.value,
+        num_classes=config.num_classes,
+    )
 
     # Get class labels for display
     inverse_label_map = {v: k for k, v in label_map.items()}
@@ -217,7 +226,8 @@ def main(config: ExperimentConfig, checkpoint_path: str = None):
         'test_accuracy': results['accuracy'],
         'test_balanced_accuracy': results['balanced_accuracy'],
         'test_quadratic_kappa': results['quadratic_kappa'],
-        'best_val_kappa': trainer.best_val_kappa,
+        'best_val_metric': trainer.best_val_metric,
+        'early_stopping_metric': trainer._early_stopping_metric_name,
         'best_epoch': trainer.best_epoch + 1,
         'total_epochs': len(history['train_loss']),
     }
@@ -232,7 +242,8 @@ def main(config: ExperimentConfig, checkpoint_path: str = None):
     print("\n" + "=" * 80)
     print("TRAINING COMPLETE")
     print("=" * 80)
-    print(f"\nBest Validation Kappa: {trainer.best_val_kappa:.4f} (epoch {trainer.best_epoch + 1})")
+    metric_name = trainer._early_stopping_metric_name.upper()
+    print(f"\nBest Val {metric_name}:      {trainer.best_val_metric:.4f} (epoch {trainer.best_epoch + 1})")
     print(f"Test Accuracy:         {results['accuracy']:.4f}")
     print(f"Test Balanced Acc:     {results['balanced_accuracy']:.4f}")
     print(f"Test Quadratic Kappa:  {results['quadratic_kappa']:.4f}")
@@ -328,6 +339,26 @@ def parse_args():
         default=None,
         help='Path to local model checkpoint (.pth, .pt, .bin, or .safetensors)',
     )
+    parser.add_argument(
+        '--num-heads',
+        type=int,
+        default=1,
+        help='Number of attention heads (default: 1)',
+    )
+    parser.add_argument(
+        '--task-type',
+        type=str,
+        default='multiclass',
+        choices=['binary', 'multiclass'],
+        help='Task type for metric selection (default: multiclass)',
+    )
+    parser.add_argument(
+        '--early-stopping-metric',
+        type=str,
+        default='auto',
+        choices=['auto', 'kappa', 'balanced_accuracy', 'auc'],
+        help='Metric for early stopping (default: auto - kappa for multiclass, auc for binary)',
+    )
     return parser.parse_args()
 
 
@@ -359,10 +390,13 @@ if __name__ == '__main__':
                 num_epochs=args.epochs,
                 early_stopping_patience=args.early_stopping_patience,
                 min_epochs=args.min_epochs,
+                task_type=TaskType(args.task_type),
+                early_stopping_metric=args.early_stopping_metric,
             ),
             model_name=args.model,
             num_classes=args.num_classes,
             output_dir=args.output_dir,
+            num_heads=args.num_heads,
         )
 
     main(config, checkpoint_path=args.checkpoint_path)
