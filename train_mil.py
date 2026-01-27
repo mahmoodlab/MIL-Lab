@@ -33,15 +33,15 @@ from pathlib import Path
 from data_loading import MILDataset, create_dataloader
 from training import ExperimentConfig, DataConfig, TrainConfig, MILTrainer, evaluate, print_evaluation_results
 from src.builder import create_model
-from utils import plot_confusion_matrix
 
 
-def main(config: ExperimentConfig):
+def main(config: ExperimentConfig, checkpoint_path: str = None):
     """
     Main training function.
 
     Args:
         config: Experiment configuration
+        checkpoint_path: Optional path to local model checkpoint
     """
     print("=" * 80)
     print("MIL TRAINING")
@@ -159,6 +159,11 @@ def main(config: ExperimentConfig):
     if not config.model_name.lower().startswith('dftd'):
         model_kwargs['gate'] = True
 
+    # Add checkpoint_path if provided for local model loading
+    if checkpoint_path:
+        print(f"Loading model from local checkpoint: {checkpoint_path}")
+        model_kwargs['checkpoint_path'] = checkpoint_path
+
     model = create_model(config.model_name, **model_kwargs).to(device)
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
@@ -194,16 +199,17 @@ def main(config: ExperimentConfig):
 
     print_evaluation_results(results, class_labels)
 
-    # Save confusion matrix plot
-    cm_path = run_dir / 'confusion_matrix.png'
-    plot_confusion_matrix(
-        results['labels'],
-        results['predictions'],
-        class_labels,
-        title=f'Confusion Matrix - {config.experiment_name}',
-        output_path=str(cm_path),
+    # Save predictions for later plotting (separate from training)
+    predictions_path = run_dir / 'predictions.npz'
+    import numpy as np
+    np.savez(
+        predictions_path,
+        labels=results['labels'],
+        predictions=results['predictions'],
+        class_labels=class_labels,
     )
-    print(f"Confusion matrix saved to: {cm_path}")
+    print(f"Predictions saved to: {predictions_path}")
+    print("  (Use separate plotting script to generate confusion matrix)")
 
     # Save results summary
     summary = {
@@ -316,6 +322,12 @@ def parse_args():
         choices=['early', 'late'],
         help='Fusion strategy for multi-slide cases: early (concatenate) or late (average) (default: early)',
     )
+    parser.add_argument(
+        '--checkpoint-path',
+        type=str,
+        default=None,
+        help='Path to local model checkpoint (.pth, .pt, .bin, or .safetensors)',
+    )
     return parser.parse_args()
 
 
@@ -353,4 +365,4 @@ if __name__ == '__main__':
             output_dir=args.output_dir,
         )
 
-    main(config)
+    main(config, checkpoint_path=args.checkpoint_path)
