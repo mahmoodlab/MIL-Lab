@@ -2,6 +2,13 @@
 """
 CV Orchestrator
 Executes K-fold cross-validation in parallel and aggregates results.
+
+Usage:
+    # Run 5-fold CV with 2 parallel workers
+    python scripts/run_cv_orchestrator.py --config experiment.json --n_folds 5 --output_dir results/ --workers 2
+
+    # Run sequentially (verbose output)
+    python scripts/run_cv_orchestrator.py --config experiment.json --n_folds 5 --output_dir results/ --workers 1
 """
 
 import argparse
@@ -15,19 +22,9 @@ import multiprocessing
 from typing import List, Dict, Any
 from pathlib import Path
 
-def find_folds(split_dir: str) -> List[int]:
-    """Find available fold indices in split directory."""
-    split_files = glob.glob(os.path.join(split_dir, 'splits_*.json'))
-    folds = []
-    for f in split_files:
-        try:
-            # Extract number from filename "splits_N.json"
-            basename = os.path.basename(f)
-            fold_num = int(basename.replace('splits_', '').replace('.json', ''))
-            folds.append(fold_num)
-        except ValueError:
-            continue
-    return sorted(folds)
+def get_fold_indices(n_folds: int) -> List[int]:
+    """Get list of fold indices (0-indexed)."""
+    return list(range(n_folds))
 
 def run_fold_worker(args: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -37,7 +34,7 @@ def run_fold_worker(args: Dict[str, Any]) -> Dict[str, Any]:
         args: Dictionary containing:
             - fold: int
             - config: str (path)
-            - split_dir: str (path)
+            - n_folds: int
             - output_dir: str (path)
             - verbose: bool (show real-time output)
 
@@ -49,9 +46,9 @@ def run_fold_worker(args: Dict[str, Any]) -> Dict[str, Any]:
     print(f"[Fold {fold}] Starting...")
 
     cmd = [
-        'python3', 'run_mil_experiments_predefined_splits.py',
+        'python3', 'run_mil_experiments_cv.py',
         '--config', args['config'],
-        '--split_dir', args['split_dir'],
+        '--n_folds', str(args['n_folds']),
         '--fold', str(fold)
     ]
 
@@ -150,18 +147,15 @@ def aggregate_results(output_dir: str) -> pd.DataFrame:
 def main():
     parser = argparse.ArgumentParser(description='CV Orchestrator')
     parser.add_argument('--config', type=str, required=True, help='Path to ExperimentConfig')
-    parser.add_argument('--split_dir', type=str, required=True, help='Directory containing split JSONs')
+    parser.add_argument('--n_folds', type=int, default=5, help='Number of CV folds')
     parser.add_argument('--output_dir', type=str, required=True, help='Root output directory for CV run')
     parser.add_argument('--workers', type=int, default=1, help='Number of parallel workers')
     parser.add_argument('--quiet', action='store_true', help='Suppress real-time training output (auto-enabled for parallel runs)')
 
     args = parser.parse_args()
 
-    # Find folds
-    folds = find_folds(args.split_dir)
-    if not folds:
-        print(f"No splits found in {args.split_dir}")
-        return
+    # Get fold indices
+    folds = get_fold_indices(args.n_folds)
 
     # Show progress by default for single worker, suppress for parallel
     verbose = (args.workers == 1) and not args.quiet
@@ -182,7 +176,7 @@ def main():
         worker_args.append({
             'fold': fold,
             'config': args.config,
-            'split_dir': args.split_dir,
+            'n_folds': args.n_folds,
             'output_dir': args.output_dir,
             'verbose': verbose
         })

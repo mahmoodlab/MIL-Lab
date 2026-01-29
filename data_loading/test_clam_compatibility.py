@@ -20,20 +20,21 @@ import pandas as pd
 import importlib.util
 
 # Import CLAM's save_hdf5 explicitly (MIL-Lab has its own version that doesn't append!)
+# Set CLAM_PATH environment variable to your CLAM installation, e.g.:
+#   export CLAM_PATH=/path/to/CLAM
+clam_path = os.environ.get('CLAM_PATH')
+if not clam_path:
+    pytest.skip("CLAM_PATH environment variable not set. Set it to run CLAM compatibility tests.")
+
 spec_clam = importlib.util.spec_from_file_location(
-    "clam_file_utils", "/home/nadim/Source/CLAM/utils/file_utils.py"
+    "clam_file_utils", os.path.join(clam_path, "utils/file_utils.py")
 )
 clam_file_utils = importlib.util.module_from_spec(spec_clam)
 spec_clam.loader.exec_module(clam_file_utils)
 save_hdf5 = clam_file_utils.save_hdf5  # CLAM's version (supports append)
 
-# Import MIL-Lab's dataset
-spec_mil = importlib.util.spec_from_file_location(
-    "data_utils", "/home/nadim/Source/MIL-Lab/utils/data_utils.py"
-)
-data_utils = importlib.util.module_from_spec(spec_mil)
-spec_mil.loader.exec_module(data_utils)
-PANDAH5Dataset = data_utils.PANDAH5Dataset
+# Import MIL-Lab's dataset (use relative import since we're in the package)
+from utils.data_utils import PANDAH5Dataset
 
 
 class TestCLAMWriteFormat:

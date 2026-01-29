@@ -1,0 +1,34 @@
+{
+  "data": {
+    "labels_csv": "/media/nadim/Data/Imaging/prostate-cancer-grade-assessment/panda_labels.csv",
+    "features_dir": "/media/nadim/Data/Imaging/prostate-cancer-grade-assessment/trident_processedqc/20x_256px_0px_overlap/features_uni_v2/",
+    "split_column": "split",
+    "train_frac": 0.7,
+    "val_frac": 0.15,
+    "seed": 42,
+    "num_workers": 4,
+    "hierarchical": false,
+    "group_column": "slide_id",
+    "fusion": "early"
+  },
+  "train": {
+    "num_epochs": 20,
+    "batch_size": 1,
+    "learning_rate": 1e-4,
+    "weight_decay": 1e-5,
+    "feature_dropout": 0.1,
+    "model_dropout": 0.25,
+    "early_stopping_patience": 5,
+    "min_epochs": 10,
+    "max_grad_norm": 1.0,
+    "use_amp": true,
+    "weighted_sampling": true,
+    "seed": 42,
+    "task_type": "multiclass",
+    "early_stopping_metric": "kappa"
+  },
+  "model_name": "abmil.base.uni_v2.none",
+  "num_classes": 6,
+  "output_dir": "experiments/panda",
+  "num_heads": 1
+}

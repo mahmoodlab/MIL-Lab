@@ -1,634 +1,325 @@
 #!/usr/bin/env python3
 """
-Multi-Experiment MIL Training Script with K-Fold Cross-Validation
-Runs multiple combinations of MIL models and encoders with cross-validation
-Generates metrics CSV with mean ± std and confusion matrices for each fold
+MIL Training Script with K-Fold Cross-Validation.
+
+Uses ExperimentConfig for all settings and supports:
+- Binary/multiclass classification via task_type
+- Case-level grouping with early/late fusion
+- Stratified K-fold CV with proper data leakage prevention
+- Optional single-fold execution for parallel orchestration
+
+Usage:
+    # Run all folds sequentially
+    python run_mil_experiments_cv.py --config experiment.json --n_folds 5
+
+    # Run a specific fold (for parallel execution via orchestrator)
+    python run_mil_experiments_cv.py --config experiment.json --n_folds 5 --fold 0
+
+    # Override output directory
+    python run_mil_experiments_cv.py --config experiment.json --output_dir results/
 """
 
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from sklearn.metrics import accuracy_score, balanced_accuracy_score, cohen_kappa_score, precision_score
-from sklearn.model_selection import StratifiedKFold
-from tqdm import tqdm
+import argparse
+import os
+import json
+from pathlib import Path
 import pandas as pd
 import numpy as np
-import os
-from datetime import datetime
-from pathlib import Path
-import json
+from sklearn.model_selection import StratifiedKFold
 
-# Import shared utilities
-from utils import preprocess_panda_data, PANDAH5Dataset, plot_confusion_matrix
+from training.config import ExperimentConfig, DataConfig, TrainConfig, TaskType
+from training.trainer import MILTrainer
+from training.evaluator import evaluate, print_evaluation_results
+from data_loading.dataset import MILDataset
+from data_loading.pytorch_adapter import create_dataloader
 from src.builder import create_model
 
-# ============================================================================
-# EXPERIMENT CONFIGURATION
-# ============================================================================
 
-# Define experiment combinations
-EXPERIMENTS = [
-    # Format: (model_config, display_name)
-    ('abmil.base.gigapath.none', 'ABMIL Non-trained + GigaPath'),
-    ('abmil.base.uni_v2.pc108-24k', 'ABMIL Trained + UNI_v2'),
-    ('abmil.base.conch_v15.pc108-24k', 'ABMIL Trained + CONCH_v1.5'),
-    # Add more combinations as needed:
-    # ('transmil.base.gigapath.none', 'TransMIL Non-trained + GigaPath'),
-    # ('transmil.base.uni_v2.pc108-24k', 'TransMIL Trained + UNI_v2'),
-    # ('clam.base.uni_v2.pc108-24k', 'CLAM Trained + UNI_v2'),
-]
-
-# Data paths - Update these to match your setup
-CSV_PATH = '/media/nadim/Data/prostate-cancer-grade-assessment/train.csv'
-WSI_DIR = '/media/nadim/Data/prostate-cancer-grade-assessment/train_images'
-
-# Feature paths for each encoder
-FEATURE_PATHS = {
-    'gigapath': '/media/nadim/Data/prostate-cancer-grade-assessment/trident_processedqc/20x_256px_0px_overlap/features_gigapath/',
-    'uni_v2': '/media/nadim/Data/prostate-cancer-grade-assessment/trident_processedqc/20x_256px_0px_overlap/features_uni_v2/',
-    'conch_v15': '/media/nadim/Data/prostate-cancer-grade-assessment/trident_processedqc/20x_256px_0px_overlap/features_conch_v15/',
-    # Add more encoders as needed
-}
-
-# Data settings
-GRADE_GROUP = True
-EXCLUDE_MID_GRADE = True
-SEED = 10
-
-# Cross-validation settings
-N_FOLDS = 5  # Number of CV folds
-TRAIN_SEED = 42
-
-# Training settings
-NUM_EPOCHS = 20
-BATCH_SIZE = 1
-LEARNING_RATE = 1e-4
-WEIGHT_DECAY = 1e-5
-
-# Early Stopping & Dropout
-EARLY_STOPPING_PATIENCE = 5
-MIN_EPOCHS = 10
-FEATURE_DROPOUT_RATE = 0.1
-MODEL_DROPOUT_RATE = 0.25
-
-# Output directory
-OUTPUT_DIR = 'experiment_results_cv'
-
-# ============================================================================
-# TRAINING FUNCTION FOR SINGLE FOLD
-# ============================================================================
-
-def train_and_evaluate_fold(
-    model_config: str,
-    display_name: str,
-    feats_path: str,
-    train_df: pd.DataFrame,
-    val_df: pd.DataFrame,
-    test_df: pd.DataFrame,
-    num_classes: int,
-    class_labels: list,
-    device: torch.device,
-    fold_num: int,
-    output_dir: str
+def run_fold(
+    config: ExperimentConfig,
+    full_ds,
+    fold: int,
+    train_ids: list,
+    val_ids: list,
+    test_ids: list,
+    n_folds: int,
 ):
     """
-    Train and evaluate a single fold
+    Run a single fold of cross-validation.
 
     Args:
-        model_config: Model configuration string
-        display_name: Human-readable name for the experiment
-        feats_path: Path to feature files
-        train_df, val_df, test_df: DataFrames for each split
-        num_classes: Number of output classes
-        class_labels: List of class label names
-        device: torch device
-        fold_num: Current fold number
-        output_dir: Directory to save results
+        config: Experiment configuration
+        full_ds: Full dataset (GroupedMILDataset or HierarchicalMILDataset)
+        fold: Current fold number (0-indexed)
+        train_ids: List of group IDs for training
+        val_ids: List of group IDs for validation
+        test_ids: List of group IDs for testing
+        n_folds: Total number of folds
 
     Returns:
-        dict: Dictionary containing all metrics for this fold
+        dict: Test results for this fold
     """
     print(f"\n{'='*80}")
-    print(f"FOLD {fold_num}/{N_FOLDS}")
+    print(f"RUNNING FOLD {fold + 1}/{n_folds}")
     print(f"{'='*80}\n")
 
-    # Create dataloaders
-    print("Creating dataloaders...")
-    train_dataset = PANDAH5Dataset(feats_path, train_df, "train", num_features=None, seed=TRAIN_SEED)
-    val_dataset = PANDAH5Dataset(feats_path, val_df, "val", num_features=None, seed=TRAIN_SEED)
-    test_dataset = PANDAH5Dataset(feats_path, test_df, "test", num_features=None, seed=TRAIN_SEED)
-
-    # Weighted sampling for training
-    from torch.utils.data import WeightedRandomSampler
-    train_labels = train_df['label'].values
-    class_counts = np.bincount(train_labels)
-    class_weights = 1.0 / class_counts
-    sample_weights = class_weights[train_labels]
-
-    weighted_sampler = WeightedRandomSampler(
-        weights=sample_weights,
-        num_samples=len(sample_weights),
-        replacement=True
-    )
-
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=BATCH_SIZE, sampler=weighted_sampler, num_workers=4
-    )
-    val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=1, shuffle=False, num_workers=4
-    )
-    test_loader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=1, shuffle=False, num_workers=4
-    )
-
-    print(f"Train batches: {len(train_loader)}")
-    print(f"Val samples: {len(val_loader)}")
-    print(f"Test samples: {len(test_loader)}\n")
-
-    # Create model
-    print("Loading model...")
-    torch.manual_seed(TRAIN_SEED + fold_num)  # Different seed per fold
-    torch.cuda.manual_seed_all(TRAIN_SEED + fold_num)
-
-    # Conditionally pass gate parameter (only for models that support it)
-    model_kwargs = {
-        'num_classes': num_classes,
-        'dropout': MODEL_DROPOUT_RATE,
-    }
-    # DFTD doesn't use the gate parameter, so only add it for other models
-    if not model_config.lower().startswith('dftd'):
-        model_kwargs['gate'] = True
-
-    model = create_model(model_config, **model_kwargs).to(device)
-
-    feature_dropout = nn.Dropout(p=FEATURE_DROPOUT_RATE).to(device)
-
-    print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}\n")
-
-    # Training setup
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS, eta_min=1e-6)
-    scaler = torch.cuda.amp.GradScaler()
-
-    best_val_loss = float('inf')
-    patience_counter = 0
-
-    # Model save path
-    model_save_name = display_name.replace(' ', '_').replace('+', '').lower()
-    model_save_path = os.path.join(output_dir, f'best_model_{model_save_name}_fold{fold_num}.pth')
-
-    # Training loop
-    for epoch in range(NUM_EPOCHS):
-        # Training
-        model.train()
-        total_loss = 0.
-
-        for features, labels in tqdm(train_loader, desc=f'Epoch {epoch+1}/{NUM_EPOCHS} [Train]', leave=False):
-            features, labels = features.to(device), labels.to(device)
-
-            # L2 Normalize features
-            features = F.normalize(features, p=2, dim=1)
-            features = feature_dropout(features)
-
-            optimizer.zero_grad()
-
-            # Mixed Precision Forward Pass
-            with torch.cuda.amp.autocast():
-                results_dict, log_dict = model(features, loss_fn=criterion, label=labels)
-                loss = results_dict['loss']
-
-            # Scaled Backward Pass
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            scaler.step(optimizer)
-            scaler.update()
-
-            total_loss += loss.item()
-
-        avg_train_loss = total_loss / len(train_loader)
-
-        # Validation
-        model.eval()
-        val_loss = 0.
-        all_preds = []
-        all_labels = []
-
-        with torch.no_grad():
-            for features, labels in val_loader:
-                features, labels = features.to(device), labels.to(device)
-
-                features = F.normalize(features, p=2, dim=1)
-                features = feature_dropout(features)
-
-                with torch.cuda.amp.autocast():
-                    results_dict, log_dict = model(features, loss_fn=criterion, label=labels)
-                    logits = results_dict['logits']
-                    loss = results_dict['loss']
-
-                val_loss += loss.item()
-                preds = torch.argmax(logits, dim=1)
-                all_preds.extend(preds.cpu().numpy())
-                all_labels.extend(labels.cpu().numpy())
-
-        avg_val_loss = val_loss / len(val_loader)
-        val_acc = accuracy_score(all_labels, all_preds)
-
-        scheduler.step()
-
-        if (epoch + 1) % 5 == 0 or epoch == 0:  # Print every 5 epochs
-            print(f"Epoch {epoch+1}/{NUM_EPOCHS}: Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}, Val Acc: {val_acc:.4f}")
-
-        # Early Stopping
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
-            torch.save(model.state_dict(), model_save_path)
-            patience_counter = 0
-        else:
-            patience_counter += 1
-
-        if patience_counter >= EARLY_STOPPING_PATIENCE and (epoch + 1) >= MIN_EPOCHS:
-            print(f"Early stopping at epoch {epoch + 1}")
-            break
-
-    # Evaluation on test set
-    print("\nEvaluating on test set...")
-    model.load_state_dict(torch.load(model_save_path))
-    model.eval()
-
-    all_preds = []
-    all_labels = []
-    all_logits = []
-
-    with torch.no_grad():
-        for features, labels in test_loader:
-            features, labels = features.to(device), labels.to(device)
-
-            features = F.normalize(features, p=2, dim=1)
-            # NO dropout during testing!
-
-            with torch.cuda.amp.autocast():
-                results_dict, log_dict = model(features, loss_fn=criterion, label=labels)
-                logits = results_dict['logits']
-
-            preds = torch.argmax(logits, dim=1)
-            all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())
-            all_logits.append(logits.cpu())
-
-    # Convert logits to probabilities
-    all_logits_cat = torch.cat(all_logits, dim=0)
-    all_probs = F.softmax(all_logits_cat, dim=1).numpy()
-
-    # Slide IDs for misclassification tracking
-    slide_ids = test_df['slide_id'].tolist()
-
-    # Calculate metrics
-    test_acc = accuracy_score(all_labels, all_preds)
-    test_balanced_acc = balanced_accuracy_score(all_labels, all_preds)
-    test_kappa = cohen_kappa_score(all_labels, all_preds, weights='quadratic')
-    test_precision = precision_score(all_labels, all_preds, average='macro', zero_division=0)
-
-    print(f"Fold {fold_num} Test Results:")
-    print(f"  Accuracy:         {test_acc:.4f}")
-    print(f"  Balanced Acc:     {test_balanced_acc:.4f}")
-    print(f"  Precision:        {test_precision:.4f}")
-    print(f"  Quadratic Kappa:  {test_kappa:.4f}")
-
-    # Print misclassified slides
-    misclassified_mask = np.array(all_labels) != np.array(all_preds)
-    if misclassified_mask.any():
-        print(f"\n  Misclassified slides ({misclassified_mask.sum()}):")
-        for sid, tl, pl in zip(
-            np.array(slide_ids)[misclassified_mask],
-            np.array(all_labels)[misclassified_mask],
-            np.array(all_preds)[misclassified_mask]
-        ):
-            print(f"    {sid}: true={class_labels[tl]}, pred={class_labels[pl]}")
-
-    # Save per-fold predictions for offline plotting
-    npz_path = os.path.join(output_dir, f'fold_{fold_num}_predictions.npz')
-    np.savez(
-        npz_path,
-        y_true=np.array(all_labels),
-        y_pred=np.array(all_preds),
-        y_prob=all_probs,
-        slide_ids=np.array(slide_ids),
-        class_labels=np.array(class_labels),
-    )
-
-    # Generate confusion matrix
-    plot_labels = [label.replace(' ', '\n') for label in class_labels]
-    cm_filename = f'confusion_matrix_{model_save_name}_fold{fold_num}.png'
-    cm_path = os.path.join(output_dir, cm_filename)
-
-    plot_confusion_matrix(
-        all_labels, all_preds, plot_labels,
-        title=f'Confusion Matrix - {display_name} (Fold {fold_num})',
-        output_path=cm_path
-    )
-
-    # Return metrics
-    return {
-        'fold': fold_num,
-        'test_accuracy': test_acc,
-        'test_balanced_accuracy': test_balanced_acc,
-        'test_precision': test_precision,
-        'test_quadratic_kappa': test_kappa,
-        'best_val_loss': best_val_loss,
-        'final_epoch': epoch + 1,
-        'model_path': model_save_path,
-        'predictions_path': npz_path,
-        'confusion_matrix_path': cm_path,
-    }
-
-# ============================================================================
-# EXPERIMENT RUNNER WITH K-FOLD CV
-# ============================================================================
-
-def run_cv_experiment(
-    model_config: str,
-    display_name: str,
-    feats_path: str,
-    df: pd.DataFrame,
-    num_classes: int,
-    class_labels: list,
-    device: torch.device,
-    output_dir: str
-):
-    """
-    Run k-fold cross-validation for a single experiment
-
-    Args:
-        model_config: Model configuration string
-        display_name: Human-readable name
-        feats_path: Path to features
-        df: Full preprocessed dataframe
-        num_classes: Number of classes
-        class_labels: Class label names
-        device: torch device
-        output_dir: Output directory
-
-    Returns:
-        dict: Aggregated results across all folds
-    """
-    print("\n" + "="*80)
-    print(f"EXPERIMENT: {display_name}")
-    print(f"Model Config: {model_config}")
-    print(f"Running {N_FOLDS}-Fold Cross-Validation")
-    print("="*80)
-
-    # Initialize StratifiedKFold
-    skf = StratifiedKFold(n_splits=N_FOLDS, shuffle=True, random_state=SEED)
-
-    # Store results for each fold
-    fold_results = []
-
-    # Perform k-fold cross-validation
-    for fold_num, (train_val_idx, test_idx) in enumerate(skf.split(df, df['label']), 1):
-        # Split data
-        train_val_df = df.iloc[train_val_idx].reset_index(drop=True)
-        test_df = df.iloc[test_idx].reset_index(drop=True)
-
-        # Further split train_val into train and val (90% train, 10% val)
-        from sklearn.model_selection import train_test_split
-        train_df, val_df = train_test_split(
-            train_val_df, test_size=0.1, stratify=train_val_df['label'], random_state=SEED
-        )
-
-        # Add split column for compatibility with PANDAH5Dataset
-        train_df = train_df.copy()
-        val_df = val_df.copy()
-        test_df = test_df.copy()
-        train_df['split'] = 'train'
-        val_df['split'] = 'val'
-        test_df['split'] = 'test'
-
-        # Train and evaluate this fold
-        fold_result = train_and_evaluate_fold(
-            model_config=model_config,
-            display_name=display_name,
-            feats_path=feats_path,
-            train_df=train_df,
-            val_df=val_df,
-            test_df=test_df,
-            num_classes=num_classes,
-            class_labels=class_labels,
-            device=device,
-            fold_num=fold_num,
-            output_dir=output_dir
-        )
-
-        fold_results.append(fold_result)
-
-    # Aggregate results
-    aggregated_results = {
-        'experiment_name': display_name,
-        'model_config': model_config,
-        'fold_results': fold_results,
-    }
-
-    # Print summary
-    print("\n" + "="*80)
-    print(f"CROSS-VALIDATION SUMMARY - {display_name}")
-    print("="*80)
-    metrics = ['test_accuracy', 'test_balanced_accuracy', 'test_precision', 'test_quadratic_kappa']
-    for metric in metrics:
-        values = [r[metric] for r in fold_results]
-        print(f"{metric}: {np.mean(values):.4f} ± {np.std(values):.4f}")
-    print("="*80 + "\n")
-
-    return aggregated_results
-
-# ============================================================================
-# MAIN
-# ============================================================================
-
-def main():
-    print("="*80)
-    print("MULTI-EXPERIMENT MIL TRAINING WITH K-FOLD CROSS-VALIDATION")
-    print(f"Total experiments: {len(EXPERIMENTS)}")
-    print(f"Folds per experiment: {N_FOLDS}")
-    print("="*80 + "\n")
-
-    # Create output directory
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_dir = os.path.join(OUTPUT_DIR, f'run_{timestamp}')
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
-    print(f"Output directory: {output_dir}\n")
-
-    # Save experiment configuration
-    config_save_path = os.path.join(output_dir, 'experiment_config.json')
-    with open(config_save_path, 'w') as f:
-        json.dump({
-            'experiments': [(config, name) for config, name in EXPERIMENTS],
-            'cv_config': {
-                'n_folds': N_FOLDS,
-                'seed': SEED,
-            },
-            'data_config': {
-                'csv_path': CSV_PATH,
-                'grade_group': GRADE_GROUP,
-                'exclude_mid_grade': EXCLUDE_MID_GRADE,
-            },
-            'training_config': {
-                'num_epochs': NUM_EPOCHS,
-                'batch_size': BATCH_SIZE,
-                'learning_rate': LEARNING_RATE,
-                'weight_decay': WEIGHT_DECAY,
-                'early_stopping_patience': EARLY_STOPPING_PATIENCE,
-                'min_epochs': MIN_EPOCHS,
-                'feature_dropout_rate': FEATURE_DROPOUT_RATE,
-                'model_dropout_rate': MODEL_DROPOUT_RATE,
-            }
-        }, f, indent=2)
-    print(f"Configuration saved to: {config_save_path}\n")
-
-    # Extract encoder from model config
-    def get_encoder_from_config(model_config: str) -> str:
-        parts = model_config.split('.')
-        if len(parts) >= 3:
-            return parts[2]
-        return None
-
-    # Get first encoder to preprocess data
-    first_encoder = get_encoder_from_config(EXPERIMENTS[0][0])
-    first_feats_path = FEATURE_PATHS.get(first_encoder)
-
-    if not first_feats_path:
-        raise ValueError(f"Feature path not found for encoder: {first_encoder}")
-
-    # Preprocess data once (without splitting - CV will handle splits)
-    print("="*70)
-    print("PREPROCESSING DATA")
-    print("="*70 + "\n")
-
-    # We'll use a custom preprocessing that doesn't split
-    df_labels = pd.read_csv(CSV_PATH)[['slide_id', 'label']]
-    df_labels['isup_grade'] = df_labels['label']
-
-    # Apply grade grouping
-    if GRADE_GROUP:
-        if EXCLUDE_MID_GRADE:
-            df_labels = df_labels[~df_labels['isup_grade'].isin([2, 3])].reset_index(drop=True)
-
-        def map_isup_to_group(isup_grade):
-            if isup_grade == 0:
-                return 0
-            elif isup_grade == 1:
-                return 1
-            elif isup_grade in [2, 3]:
-                return 2
-            elif isup_grade in [4, 5]:
-                return 2 if EXCLUDE_MID_GRADE else 3
-            else:
-                raise ValueError(f"Invalid ISUP grade: {isup_grade}")
-
-        df_labels['label'] = df_labels['isup_grade'].apply(map_isup_to_group)
-
-    # Find available features
-    from glob import glob
-    feature_files = glob(os.path.join(first_feats_path, '*.h5'))
-    available_slide_ids = [os.path.basename(f).replace('.h5', '') for f in feature_files]
-
-    # Match with available features
-    df_labels['has_features'] = df_labels['slide_id'].isin(available_slide_ids)
-    df = df_labels[df_labels['has_features']].drop(columns=['has_features']).reset_index(drop=True)
-
-    num_classes = len(df['label'].unique())
-
-    # Define group names
-    if GRADE_GROUP:
-        if EXCLUDE_MID_GRADE:
-            class_labels = ['Group 0 (No cancer)', 'Group 1 (Low grade)', 'Group 2 (High grade)']
-        else:
-            class_labels = ['Group 0 (No cancer)', 'Group 1 (Low grade)',
-                           'Group 2 (Mid grade)', 'Group 3 (High grade)']
-    else:
-        class_labels = [f'ISUP {i}' for i in range(6)]
-
-    print(f"Total slides: {len(df)}")
-    print(f"Number of classes: {num_classes}\n")
-
-    # Setup device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}\n")
+    print(f"Device: {device}")
 
-    # Run experiments
-    all_results = []
+    # Create subsets
+    train_ds = full_ds.get_subset(train_ids)
+    val_ds = full_ds.get_subset(val_ids)
+    test_ds = full_ds.get_subset(test_ids)
 
-    for idx, (model_config, display_name) in enumerate(EXPERIMENTS, 1):
-        print("\n" + "#"*80)
-        print(f"RUNNING EXPERIMENT {idx}/{len(EXPERIMENTS)}")
-        print("#"*80)
+    print(f"Split sizes: Train={len(train_ds)}, Val={len(val_ds)}, Test={len(test_ds)}")
 
-        # Get encoder and feature path
-        encoder = get_encoder_from_config(model_config)
-        feats_path = FEATURE_PATHS.get(encoder)
+    # Create Dataloaders
+    train_loader, train_adapter = create_dataloader(
+        train_ds,
+        batch_size=config.train.batch_size,
+        weighted_sampling=config.train.weighted_sampling,
+        num_workers=config.data.num_workers,
+        seed=config.train.seed + fold,  # Different seed per fold
+    )
+    val_loader, _ = create_dataloader(
+        val_ds,
+        batch_size=config.train.batch_size,
+        shuffle=False,
+        num_workers=config.data.num_workers,
+        label_map=train_adapter.label_map,
+    )
+    test_loader, _ = create_dataloader(
+        test_ds,
+        batch_size=1,
+        shuffle=False,
+        num_workers=config.data.num_workers,
+        label_map=train_adapter.label_map,
+    )
 
-        if not feats_path:
-            print(f"WARNING: Feature path not found for encoder '{encoder}'. Skipping...")
-            continue
+    # Create Model (with different seed per fold for initialization)
+    torch.manual_seed(config.train.seed + fold)
+    torch.cuda.manual_seed_all(config.train.seed + fold)
 
-        if not os.path.exists(feats_path):
-            print(f"WARNING: Feature path does not exist: {feats_path}. Skipping...")
-            continue
+    model = create_model(
+        config.model_name,
+        num_classes=config.num_classes,
+        dropout=config.train.model_dropout,
+        num_heads=config.num_heads,
+    )
 
-        # Run CV experiment
-        try:
-            results = run_cv_experiment(
-                model_config=model_config,
-                display_name=display_name,
-                feats_path=feats_path,
-                df=df,
-                num_classes=num_classes,
-                class_labels=class_labels,
-                device=device,
-                output_dir=output_dir
-            )
-            all_results.append(results)
+    # Train
+    fold_output_dir = Path(config.output_dir) / f"fold_{fold}"
+    trainer = MILTrainer(
+        model=model,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        config=config.train,
+        device=device,
+        checkpoint_dir=str(fold_output_dir),
+    )
 
-        except Exception as e:
-            print(f"\nERROR in experiment '{display_name}': {str(e)}")
-            import traceback
-            traceback.print_exc()
-            print("Continuing with next experiment...\n")
-            continue
+    history = trainer.fit()
+
+    # Evaluate best model on test set
+    print("\nEvaluating best model on test set...")
+    trainer.load_best_model()
+    test_results = evaluate(
+        trainer.model,
+        test_loader,
+        device,
+        use_amp=config.train.use_amp,
+        task_type=config.train.task_type.value,
+    )
+
+    print_evaluation_results(test_results)
 
     # Save results
-    if all_results:
-        # Build per-fold rows
-        rows = []
-        for result in all_results:
-            for fold_result in result['fold_results']:
-                rows.append({
-                    'experiment_name': result['experiment_name'],
-                    'model_config': result['model_config'],
-                    'fold': fold_result['fold'],
-                    'test_accuracy': fold_result['test_accuracy'],
-                    'test_balanced_accuracy': fold_result['test_balanced_accuracy'],
-                    'test_precision': fold_result['test_precision'],
-                    'test_quadratic_kappa': fold_result['test_quadratic_kappa'],
-                    'best_val_loss': fold_result['best_val_loss'],
-                    'final_epoch': fold_result['final_epoch'],
-                    'model_path': fold_result['model_path'],
-                    'predictions_path': fold_result['predictions_path'],
-                    'confusion_matrix_path': fold_result['confusion_matrix_path'],
-                })
+    results_path = fold_output_dir / "test_results.json"
+    test_results_serializable = {
+        k: v.tolist() if isinstance(v, np.ndarray) else v
+        for k, v in test_results.items()
+        if k not in ['predictions', 'labels', 'probabilities']
+    }
+    test_results_serializable['fold'] = fold
 
-        results_df = pd.DataFrame(rows)
-        results_csv_path = os.path.join(output_dir, 'cv_results.csv')
-        results_df.to_csv(results_csv_path, index=False)
+    with open(results_path, 'w') as f:
+        json.dump(test_results_serializable, f, indent=4)
 
-        print("\n" + "="*80)
-        print("ALL EXPERIMENTS COMPLETE")
-        print("="*80)
-        print(f"\nResults saved to: {results_csv_path}")
-        print(f"Per-fold predictions: {output_dir}/fold_*_predictions.npz\n")
+    print(f"Results saved to: {results_path}")
+
+    return test_results_serializable
+
+
+def generate_cv_splits(full_ds, n_folds: int, seed: int, val_frac: float = 0.1):
+    """
+    Generate stratified K-fold splits.
+
+    Args:
+        full_ds: Dataset with group_ids and labels properties
+        n_folds: Number of folds
+        seed: Random seed
+        val_frac: Fraction of train+val to use for validation
+
+    Yields:
+        tuple: (fold_idx, train_ids, val_ids, test_ids)
+    """
+    from sklearn.model_selection import train_test_split
+
+    group_ids = np.array(full_ds.group_ids)
+    labels = np.array(full_ds.labels)
+
+    skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=seed)
+
+    for fold_idx, (train_val_idx, test_idx) in enumerate(skf.split(group_ids, labels)):
+        train_val_ids = group_ids[train_val_idx]
+        test_ids = group_ids[test_idx].tolist()
+
+        # Further split train_val into train and val
+        train_val_labels = labels[train_val_idx]
+        train_ids, val_ids = train_test_split(
+            train_val_ids,
+            test_size=val_frac,
+            stratify=train_val_labels,
+            random_state=seed,
+        )
+
+        yield fold_idx, train_ids.tolist(), val_ids.tolist(), test_ids
+
+
+def aggregate_results(output_dir: str, n_folds: int):
+    """Aggregate results from all folds and print summary."""
+    all_results = []
+
+    for fold in range(n_folds):
+        results_path = Path(output_dir) / f"fold_{fold}" / "test_results.json"
+        if results_path.exists():
+            with open(results_path, 'r') as f:
+                all_results.append(json.load(f))
+
+    if not all_results:
+        print("No results found to aggregate.")
+        return
+
+    # Extract numeric metrics
+    metrics = {}
+    for key in all_results[0].keys():
+        if key in ['fold', 'confusion_matrix']:
+            continue
+        values = [r.get(key) for r in all_results if r.get(key) is not None]
+        if values and isinstance(values[0], (int, float)):
+            metrics[key] = values
+
+    # Print summary
+    print("\n" + "=" * 80)
+    print("CROSS-VALIDATION SUMMARY")
+    print("=" * 80)
+
+    for metric, values in metrics.items():
+        mean = np.mean(values)
+        std = np.std(values)
+        print(f"{metric}: {mean:.4f} ± {std:.4f}")
+
+    # Save summary CSV
+    summary_df = pd.DataFrame(all_results)
+    summary_path = Path(output_dir) / "cv_summary.csv"
+    summary_df.to_csv(summary_path, index=False)
+    print(f"\nDetailed results saved to: {summary_path}")
+
+    # Save aggregated stats
+    stats = {metric: {'mean': np.mean(values), 'std': np.std(values)}
+             for metric, values in metrics.items()}
+    stats_path = Path(output_dir) / "cv_stats.json"
+    with open(stats_path, 'w') as f:
+        json.dump(stats, f, indent=2)
+    print(f"Aggregated stats saved to: {stats_path}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description='MIL Training with K-Fold Cross-Validation')
+    parser.add_argument('--config', type=str, required=True, help='Path to ExperimentConfig JSON')
+    parser.add_argument('--n_folds', type=int, default=5, help='Number of CV folds')
+    parser.add_argument('--fold', type=int, default=None, help='Run only this fold (0-indexed). If not set, runs all folds.')
+    parser.add_argument('--output_dir', type=str, help='Override output directory')
+    parser.add_argument('--val_frac', type=float, default=0.1, help='Fraction of train set to use for validation')
+
+    args = parser.parse_args()
+
+    # Load config
+    config = ExperimentConfig.load(args.config)
+
+    # Override output_dir if specified
+    if args.output_dir:
+        config.output_dir = args.output_dir
+
+    # Create output directory
+    Path(config.output_dir).mkdir(parents=True, exist_ok=True)
+
+    print("=" * 80)
+    print("MIL TRAINING WITH K-FOLD CROSS-VALIDATION")
+    print("=" * 80)
+    print(f"Model: {config.model_name}")
+    print(f"Num classes: {config.num_classes}")
+    print(f"Task type: {config.train.task_type.value}")
+    print(f"Folds: {args.n_folds}")
+    print(f"Output: {config.output_dir}")
+    print("=" * 80 + "\n")
+
+    # Save config copy to output
+    config_save_path = Path(config.output_dir) / "experiment_config.json"
+    config.save(str(config_save_path))
+
+    # Initialize Base Dataset
+    print("Loading dataset...")
+    base_ds = MILDataset(config.data.labels_csv, config.data.features_dir)
+
+    # Apply fusion strategy
+    if config.data.hierarchical:
+        print(f"Using Hierarchical fusion (Late Fusion) by '{config.data.group_column}'")
+        full_ds = base_ds.group_by(config.data.group_column)
     else:
-        print("\nNo experiments completed successfully.")
+        print(f"Using Grouped fusion (Early Fusion) by '{config.data.group_column}'")
+        full_ds = base_ds.concat_by(config.data.group_column)
 
-if __name__ == "__main__":
+    print(f"Total samples (after grouping): {len(full_ds)}")
+    print(f"Number of classes: {full_ds.num_classes}")
+
+    # Generate all splits upfront (ensures determinism)
+    all_splits = list(generate_cv_splits(
+        full_ds,
+        n_folds=args.n_folds,
+        seed=config.data.seed,
+        val_frac=args.val_frac,
+    ))
+
+    # Save splits for reproducibility
+    splits_save_path = Path(config.output_dir) / "cv_splits.json"
+    splits_data = {
+        f"fold_{i}": {"train": train, "val": val, "test": test}
+        for i, train, val, test in all_splits
+    }
+    with open(splits_save_path, 'w') as f:
+        json.dump(splits_data, f, indent=2)
+    print(f"Splits saved to: {splits_save_path}")
+
+    # Run folds
+    if args.fold is not None:
+        # Single fold mode (for parallel orchestration)
+        if args.fold < 0 or args.fold >= args.n_folds:
+            raise ValueError(f"Fold {args.fold} out of range [0, {args.n_folds})")
+
+        fold_idx, train_ids, val_ids, test_ids = all_splits[args.fold]
+        run_fold(config, full_ds, fold_idx, train_ids, val_ids, test_ids, args.n_folds)
+    else:
+        # Run all folds sequentially
+        for fold_idx, train_ids, val_ids, test_ids in all_splits:
+            run_fold(config, full_ds, fold_idx, train_ids, val_ids, test_ids, args.n_folds)
+
+        # Aggregate results
+        aggregate_results(config.output_dir, args.n_folds)
+
+    print("\nDone!")
+
+
+if __name__ == '__main__':
     main()
