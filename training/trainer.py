@@ -6,6 +6,7 @@ MIL Trainer with early stopping, AMP, and MLflow-ready history tracking.
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import numpy as np
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from typing import Dict, List, Optional, Any
@@ -281,6 +282,14 @@ class MILTrainer:
         # Calculate metrics using shared utility
         # Infer num_classes from probability output shape
         num_classes = all_probs.shape[1]
+
+        # Debug: print class distribution and task_type
+        unique, counts = np.unique(all_labels, return_counts=True)
+        if epoch == 0:
+            print(f"\n  [DEBUG] task_type={self.config.task_type.value}, num_classes={num_classes}")
+            print(f"  [DEBUG] Val set class distribution: {dict(zip(unique, counts))}")
+            print(f"  [DEBUG] all_probs shape: {all_probs.shape}")
+
         metrics = calculate_metrics(
             all_labels,
             all_preds,

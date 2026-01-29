@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from sklearn.metrics import accuracy_score, balanced_accuracy_score, cohen_kappa_score
+from sklearn.metrics import accuracy_score, balanced_accuracy_score, cohen_kappa_score, precision_score
 from sklearn.model_selection import StratifiedKFold
 from tqdm import tqdm
 import pandas as pd
@@ -260,6 +260,7 @@ def train_and_evaluate_fold(
 
     all_preds = []
     all_labels = []
+    all_logits = []
 
     with torch.no_grad():
         for features, labels in test_loader:
@@ -275,16 +276,48 @@ def train_and_evaluate_fold(
             preds = torch.argmax(logits, dim=1)
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
+            all_logits.append(logits.cpu())
+
+    # Convert logits to probabilities
+    all_logits_cat = torch.cat(all_logits, dim=0)
+    all_probs = F.softmax(all_logits_cat, dim=1).numpy()
+
+    # Slide IDs for misclassification tracking
+    slide_ids = test_df['slide_id'].tolist()
 
     # Calculate metrics
     test_acc = accuracy_score(all_labels, all_preds)
     test_balanced_acc = balanced_accuracy_score(all_labels, all_preds)
     test_kappa = cohen_kappa_score(all_labels, all_preds, weights='quadratic')
+    test_precision = precision_score(all_labels, all_preds, average='macro', zero_division=0)
 
     print(f"Fold {fold_num} Test Results:")
     print(f"  Accuracy:         {test_acc:.4f}")
     print(f"  Balanced Acc:     {test_balanced_acc:.4f}")
+    print(f"  Precision:        {test_precision:.4f}")
     print(f"  Quadratic Kappa:  {test_kappa:.4f}")
+
+    # Print misclassified slides
+    misclassified_mask = np.array(all_labels) != np.array(all_preds)
+    if misclassified_mask.any():
+        print(f"\n  Misclassified slides ({misclassified_mask.sum()}):")
+        for sid, tl, pl in zip(
+            np.array(slide_ids)[misclassified_mask],
+            np.array(all_labels)[misclassified_mask],
+            np.array(all_preds)[misclassified_mask]
+        ):
+            print(f"    {sid}: true={class_labels[tl]}, pred={class_labels[pl]}")
+
+    # Save per-fold predictions for offline plotting
+    npz_path = os.path.join(output_dir, f'fold_{fold_num}_predictions.npz')
+    np.savez(
+        npz_path,
+        y_true=np.array(all_labels),
+        y_pred=np.array(all_preds),
+        y_prob=all_probs,
+        slide_ids=np.array(slide_ids),
+        class_labels=np.array(class_labels),
+    )
 
     # Generate confusion matrix
     plot_labels = [label.replace(' ', '\n') for label in class_labels]
@@ -302,10 +335,12 @@ def train_and_evaluate_fold(
         'fold': fold_num,
         'test_accuracy': test_acc,
         'test_balanced_accuracy': test_balanced_acc,
+        'test_precision': test_precision,
         'test_quadratic_kappa': test_kappa,
         'best_val_loss': best_val_loss,
         'final_epoch': epoch + 1,
         'model_path': model_save_path,
+        'predictions_path': npz_path,
         'confusion_matrix_path': cm_path,
     }
 
@@ -389,30 +424,20 @@ def run_cv_experiment(
         fold_results.append(fold_result)
 
     # Aggregate results
-    metrics = ['test_accuracy', 'test_balanced_accuracy', 'test_quadratic_kappa', 'best_val_loss']
     aggregated_results = {
         'experiment_name': display_name,
         'model_config': model_config,
-        'n_folds': N_FOLDS,
+        'fold_results': fold_results,
     }
-
-    # Calculate mean and std for each metric
-    for metric in metrics:
-        values = [r[metric] for r in fold_results]
-        aggregated_results[f'{metric}_mean'] = np.mean(values)
-        aggregated_results[f'{metric}_std'] = np.std(values)
-
-    # Store per-fold results
-    aggregated_results['fold_results'] = fold_results
 
     # Print summary
     print("\n" + "="*80)
     print(f"CROSS-VALIDATION SUMMARY - {display_name}")
     print("="*80)
+    metrics = ['test_accuracy', 'test_balanced_accuracy', 'test_precision', 'test_quadratic_kappa']
     for metric in metrics:
-        mean_val = aggregated_results[f'{metric}_mean']
-        std_val = aggregated_results[f'{metric}_std']
-        print(f"{metric}: {mean_val:.4f} ± {std_val:.4f}")
+        values = [r[metric] for r in fold_results]
+        print(f"{metric}: {np.mean(values):.4f} ± {np.std(values):.4f}")
     print("="*80 + "\n")
 
     return aggregated_results
@@ -574,63 +599,34 @@ def main():
 
     # Save results
     if all_results:
-        # Create summary CSV
-        summary_rows = []
-        detailed_rows = []
-
+        # Build per-fold rows
+        rows = []
         for result in all_results:
-            # Summary row (mean ± std)
-            summary_row = {
-                'experiment_name': result['experiment_name'],
-                'model_config': result['model_config'],
-                'n_folds': result['n_folds'],
-                'test_accuracy_mean': result['test_accuracy_mean'],
-                'test_accuracy_std': result['test_accuracy_std'],
-                'test_balanced_accuracy_mean': result['test_balanced_accuracy_mean'],
-                'test_balanced_accuracy_std': result['test_balanced_accuracy_std'],
-                'test_quadratic_kappa_mean': result['test_quadratic_kappa_mean'],
-                'test_quadratic_kappa_std': result['test_quadratic_kappa_std'],
-                'best_val_loss_mean': result['best_val_loss_mean'],
-                'best_val_loss_std': result['best_val_loss_std'],
-            }
-            summary_rows.append(summary_row)
-
-            # Detailed rows (per fold)
             for fold_result in result['fold_results']:
-                detailed_row = {
+                rows.append({
                     'experiment_name': result['experiment_name'],
                     'model_config': result['model_config'],
                     'fold': fold_result['fold'],
                     'test_accuracy': fold_result['test_accuracy'],
                     'test_balanced_accuracy': fold_result['test_balanced_accuracy'],
+                    'test_precision': fold_result['test_precision'],
                     'test_quadratic_kappa': fold_result['test_quadratic_kappa'],
                     'best_val_loss': fold_result['best_val_loss'],
                     'final_epoch': fold_result['final_epoch'],
                     'model_path': fold_result['model_path'],
+                    'predictions_path': fold_result['predictions_path'],
                     'confusion_matrix_path': fold_result['confusion_matrix_path'],
-                }
-                detailed_rows.append(detailed_row)
+                })
 
-        # Save summary CSV
-        summary_df = pd.DataFrame(summary_rows)
-        summary_csv_path = os.path.join(output_dir, 'cv_summary_results.csv')
-        summary_df.to_csv(summary_csv_path, index=False)
-
-        # Save detailed CSV
-        detailed_df = pd.DataFrame(detailed_rows)
-        detailed_csv_path = os.path.join(output_dir, 'cv_detailed_results.csv')
-        detailed_df.to_csv(detailed_csv_path, index=False)
+        results_df = pd.DataFrame(rows)
+        results_csv_path = os.path.join(output_dir, 'cv_results.csv')
+        results_df.to_csv(results_csv_path, index=False)
 
         print("\n" + "="*80)
         print("ALL EXPERIMENTS COMPLETE")
         print("="*80)
-        print(f"\nSummary results saved to: {summary_csv_path}")
-        print(f"Detailed results saved to: {detailed_csv_path}\n")
-        print("Summary (Mean ± Std):")
-        print(summary_df[['experiment_name', 'test_accuracy_mean', 'test_accuracy_std',
-                          'test_balanced_accuracy_mean', 'test_balanced_accuracy_std',
-                          'test_quadratic_kappa_mean', 'test_quadratic_kappa_std']].to_string(index=False))
-        print("\n")
+        print(f"\nResults saved to: {results_csv_path}")
+        print(f"Per-fold predictions: {output_dir}/fold_*_predictions.npz\n")
     else:
         print("\nNo experiments completed successfully.")
 

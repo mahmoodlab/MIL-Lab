@@ -22,7 +22,7 @@ EARLY_STOPPING_PATIENCE=100
 MIN_EPOCHS=10
 OUTPUT_DIR="experiments"
 TASK_TYPE="multiclass"  # "binary" or "multiclass"
-EARLY_STOPPING_METRIC="auto"  # "auto", "kappa", "balanced_accuracy", "auc"
+EARLY_STOPPING_METRIC="kappa"  # "auto", "kappa", "balanced_accuracy", "auc"
 
 # =============================================================================
 # RUN

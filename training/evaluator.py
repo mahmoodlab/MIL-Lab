@@ -15,6 +15,7 @@ from sklearn.metrics import (
     cohen_kappa_score,
     confusion_matrix,
     f1_score,
+    precision_score,
     roc_auc_score,
 )
 
@@ -125,6 +126,7 @@ def calculate_metrics(
         'accuracy': accuracy_score(y_true, y_pred),
         'balanced_accuracy': balanced_accuracy_score(y_true, y_pred),
         'f1_macro': f1_score(y_true, y_pred, average='macro', zero_division=0),
+        'precision_macro': precision_score(y_true, y_pred, average='macro', zero_division=0),
         'quadratic_kappa': cohen_kappa_score(y_true, y_pred, weights='quadratic'),
         'confusion_matrix': confusion_matrix(y_true, y_pred),
     }
@@ -153,18 +155,33 @@ def _compute_auc_safe(
 
     try:
         if task_type == 'binary':
-            # For binary, use probability of positive class
-            if y_prob.ndim == 2 and y_prob.shape[1] == 2:
-                probs = y_prob[:, 1]
-            else:
-                probs = y_prob
+            unique_classes = np.unique(y_true)
 
             # Check we have both classes
-            if len(np.unique(y_true)) < 2:
+            if len(unique_classes) < 2:
+                print(f"  Warning: AUC=0 because only one class in y_true: {unique_classes} (n={len(y_true)})")
                 return 0.0
-            return roc_auc_score(y_true, probs)
 
-        else:
+            # Check if labels are actually binary (only 2 unique values)
+            if len(unique_classes) > 2:
+                print(f"  Warning: task_type='binary' but y_true has {len(unique_classes)} classes: {unique_classes}")
+                print(f"  Falling back to multiclass OvR AUC...")
+                # Fall through to multiclass computation below
+                task_type = 'multiclass'
+            else:
+                # For binary, use probability of positive class
+                if y_prob.ndim == 2 and y_prob.shape[1] == 2:
+                    probs = y_prob[:, 1]
+                elif y_prob.ndim == 2 and y_prob.shape[1] > 2:
+                    # Model has more classes than labels - use highest class prob
+                    print(f"  Warning: Binary labels but model outputs {y_prob.shape[1]} classes. Using max class prob.")
+                    probs = y_prob[:, -1]
+                else:
+                    probs = y_prob
+
+                return roc_auc_score(y_true, probs)
+
+        if task_type == 'multiclass':
             # Multiclass: compute OvR AUC for each class manually
             n_classes = num_classes if num_classes else y_prob.shape[1]
 
@@ -187,6 +204,8 @@ def _compute_auc_safe(
                     continue
 
             if len(class_aucs) == 0:
+                unique, counts = np.unique(y_true, return_counts=True)
+                print(f"  Warning: AUC=0 because insufficient class diversity. Classes: {dict(zip(unique, counts))}")
                 return 0.0
 
             return np.mean(class_aucs)
