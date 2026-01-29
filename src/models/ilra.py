@@ -144,7 +144,7 @@ class ILRA(MIL):
         for block in self.gab_blocks:
             x = block(x)
         slide_feat, attention = self.forward_attention(x, return_attention=return_attention)
-        return slide_feat, {'attention': attention}
+        return slide_feat, attention
 
     def forward_attention(self, x, return_attention):
         slide_feat, attention = self.pooling(x, return_attention)
