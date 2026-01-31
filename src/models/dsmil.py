@@ -127,7 +127,7 @@ class DSMIL(MIL):
         cls_loss = self.compute_loss(loss_fn, logits, label)
 
         results_dict = {'logits': logits, 'loss': cls_loss}
-        log_dict = {'loss': cls_loss.item() if cls_loss is not None else -1}
+        log_dict = {'loss': cls_loss.item() if cls_loss is not None else -1, "attention": intermeds['attention']}
         if not return_attention and 'attention' in log_dict:
             del log_dict['attention']
         if return_slide_feats:
