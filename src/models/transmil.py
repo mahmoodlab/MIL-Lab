@@ -134,7 +134,7 @@ class TransMIL(MIL):
         h = self._add_cls_token(h)
         h, attn = self._apply_trans_layers(h, h_square, w_square, return_attention)
         wsi_feat = self.norm(h)[:, 0]  # get cls token
-        return wsi_feat, {'attention': attn}
+        return wsi_feat, attn
 
     def _apply_trans_layers(self, h: torch.Tensor, h_square: int, w_square: int, return_attention: bool = False) -> torch.Tensor:
         """
@@ -234,11 +234,13 @@ class TransMIL(MIL):
         Returns:
             tuple: Slide-level features and logits from the classifier.
         """
-        wsi_feats, log_dict = self.forward_features(h, return_attention=return_attention)
+        wsi_feats, intermeds = self.forward_features(h, return_attention=return_attention)
         logits = self.forward_head(wsi_feats)
         cls_loss = self.compute_loss(loss_fn=loss_fn, label=label, logits=logits)
         results_dict = {'logits': logits, 'loss': cls_loss}
-        log_dict = {'loss': cls_loss.item() if cls_loss is not None else -1}
+        log_dict = {'loss': cls_loss.item() if cls_loss is not None else -1, "attention": intermeds['attention']}
+        if not return_attention and 'attention' in log_dict:
+            del log_dict['attention']
         if return_slide_feats:
             log_dict['slide_feats'] = wsi_feats
         return results_dict, log_dict
