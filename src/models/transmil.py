@@ -238,9 +238,9 @@ class TransMIL(MIL):
         logits = self.forward_head(wsi_feats)
         cls_loss = self.compute_loss(loss_fn=loss_fn, label=label, logits=logits)
         results_dict = {'logits': logits, 'loss': cls_loss}
-        log_dict = {'loss': cls_loss.item() if cls_loss is not None else -1, "attention": intermeds['attention']}
-        if not return_attention and 'attention' in log_dict:
-            del log_dict['attention']
+        log_dict = {'loss': cls_loss.item() if cls_loss is not None else -1}
+        if return_attention:
+            log_dict['attention'] = intermeds['attention']
         if return_slide_feats:
             log_dict['slide_feats'] = wsi_feats
         return results_dict, log_dict
