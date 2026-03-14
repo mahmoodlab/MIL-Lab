@@ -166,3 +166,13 @@ src/misc
 .vscode
 src/debug
 core.*
+
+# Output directories
+experiments/
+experiment_results_cv/
+heatmaps/
+autoresearch/
+
+# Tool-specific
+.claude/
+.qodo/
